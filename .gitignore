@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.python-version
+
+# Runtime data (local jobs)
+data/
+*.log
+
+# Local medical samples (do not commit PHI)
+input/**
+!input/.gitkeep
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Media outputs accidentally in repo root
+output/
+outputs/
+*.mp4
+*.gif
+!web/**

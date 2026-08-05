@@ -1,0 +1,185 @@
+> ⚠️ **已由优化设计替代**  
+> 请以 [`.ai/00-index.md`](.ai/00-index.md) 及同目录文档为准（本地优先、合并=单文件、面向医生传阅）。  
+> 下文为初版 brainstorm，仅作历史参考。
+
+这是一个非常实用的医学影像工具产品化方向。从当前的 CLI 脚本升级为 Web + App，核心在于**架构分层、异步处理、跨端复用**。以下是完整的思路与技术方案：
+
+---
+
+## 🏗️ 一、整体架构设计
+
+```
+┌─────────────┐   ┌─────────────┐   ┌──────────────────┐
+│  Web 前端    │   │  Mobile App │   │  桌面客户端(可选) │
+│ (React/Vue) │   │(Flutter/RN) │   │   (Tauri/Electron)│
+└──────┬──────┘   └──────┬──────┘   └────────┬─────────
+       │                 │                   │
+       └────────────────┴───────────────────┘
+                ▼
+        ┌───────────────┐
+        │  API Gateway  │  (FastAPI / Node.js)
+        │  + Auth + Rate│
+        └───────┬───────┘
+                ▼
+        ┌───────────────┐     ┌─────────────────┐
+        │  Task Queue   │────▶│  Worker Pool    │
+        │ (Celery/RQ)   │     │ (DICOM转换引擎)  │
+        └───────────────┘     └────────┬────────┘
+                                       ▼
+                              ┌─────────────────┐
+                              │  Object Storage │
+                              │ (MinIO/S3/OSS)  │
+                              └─────────────────┘
+```
+
+**关键原则**：
+- **转换逻辑完全后端化**：你现有的 `dicom_convert.py` 核心代码（pydicom + numpy + imageio/ffmpeg）直接封装为 Worker 任务，前后端只传文件URL和参数。
+- **异步处理**：DICOM 解压+转换可能耗时数十秒到数分钟，必须用任务队列，前端轮询/WebSocket 获取进度。
+- **无状态服务**：Worker 不保存本地文件，输入输出均走对象存储，便于水平扩展。
+
+---
+
+## 🧩 二、技术栈推荐
+
+| 层级 | 推荐方案 | 理由 |
+|------|---------|------|
+| **后端 API** | Python FastAPI | 与你现有代码同语言，async 原生支持，自动生成 OpenAPI 文档 |
+| **任务队列** | Celery + Redis | 成熟稳定，支持优先级/重试/超时；轻量替代可用 RQ |
+| **DICOM 引擎** | pydicom + numpy + imageio[ffmpeg] / PyAV | 复用现有逻辑，PyAV 更稳定无需外部 ffmpeg |
+| **GIF 生成** | Pillow / imageio | GIF 需调色板量化，Pillow 的 `convert('P', palette=ADAPTIVE)` 效果好 |
+| **压缩解压** | `patoolib` 或 `unrar-cffi` + `zipfile` | 统一接口支持 zip/rar/7z/tar.gz |
+| **对象存储** | MinIO（自建）/ 阿里云 OSS / AWS S3 | 存原始上传包 + 转换结果，签名URL直传/下载 |
+| **Web 前端** | React + Tailwind + shadcn/ui | 拖拽上传、进度条、参数面板组件丰富 |
+| **Mobile App** | Flutter | 一套代码 iOS/Android/Web，文件选择器+后台上传成熟 |
+| **桌面端(可选)** | Tauri (Rust+Web) | 打包你的 Python 引擎为 sidecar，离线可用，体积<10MB |
+| **数据库** | PostgreSQL + Redis | PG 存用户/任务元数据，Redis 存队列+缓存 |
+| **部署** | Docker Compose → K8s | Worker 可独立扩缩容，GPU 节点可选加速 |
+
+---
+
+## ⚙️ 三、核心功能模块拆解
+
+### 1. 上传与解压
+```python
+# 支持格式自动检测
+import patoolib
+patoolib.extract_archive(uploaded_path, outdir=temp_dir)
+# 递归扫描所有 .dcm / 无扩展名DICOM文件
+```
+- 前端用 **分片上传**（tus 协议）支持大文件（CT 压缩包常 200MB+）
+- 服务端流式解压，避免内存爆炸
+
+### 2. 转换引擎（封装你现有代码）
+```python
+class DicomConverter:
+    def convert(self, input_dir, output_format, quality, merge, fps, window_type):
+        # 1. 发现序列 (复用 get_series_groups)
+        # 2. 并行转换各序列 (multiprocessing.Pool)
+        # 3. 按需合并 (ffmpeg concat)
+        # 4. 返回结果文件路径列表
+```
+- **输出格式分支**：
+  - `mp4`: libx264 / h264，CRF 控制质量
+  - `gif`: 降采样 + 调色板优化，限制帧数/尺寸避免文件过大
+  - `webm`: VP9，网页友好
+- **质量控制映射**：
+  | 用户选项 | MP4 CRF | GIF 色深 | 分辨率缩放 |
+  |---------|---------|---------|-----------|
+  | 极速/低清 | 28 | 64色 | 50% |
+  | 标准 | 20 | 128色 | 100% |
+  | 高清 | 15 | 256色 | 100% |
+  | 超清/无损 | 10 | 256色+dither | 原始 |
+
+### 3. 合并策略
+- **不合并**：每个序列独立文件，打包为 zip 下载
+- **合并**：按 InstanceNumber 排序后 ffmpeg concat
+- **智能合并**：仅合并同解剖部位/同窗宽的序列（可通过 DICOM SeriesDescription 启发式判断）
+
+### 4. 进度反馈
+```python
+# Celery 任务中更新状态
+self.update_state(state='PROGRESS', meta={'current': 40, 'total': 125, 'series': '1.25mm BONE'})
+```
+前端通过 WebSocket 或 SSE 实时显示："正在处理第 3/17 个序列... 60%"
+
+---
+
+## 🔒 四、医疗数据安全合规（重中之重）
+
+1. **传输加密**：全站 HTTPS，上传/下载用预签名 URL（有效期 5 分钟）
+2. **存储加密**：对象存储开启 SSE-KMS，数据库字段级加密
+3. **自动清理**：任务完成后 24h 自动删除原始文件和结果（可配置），符合 HIPAA/GDPR 最小留存原则
+4. **审计日志**：记录谁在何时上传/下载了哪个 Study UID
+5. **去标识化**：转换前可选剥离 PatientName/ID 等 PHI 标签（保留诊断所需的技术参数）
+6. **私有化部署**：提供 Docker 镜像供医院内网部署，数据不出院
+
+> 💡 如果面向国内医院，需考虑《个人信息保护法》和等保要求；建议默认提供"本地模式"（Tauri 桌面端），数据完全不离开用户机器。
+
+---
+
+## 📱 五、App 端特殊考量
+
+- **后台上传**：iOS/Android 对后台任务有限制，大文件需用 Background Upload Session
+- **预览能力**：内置轻量 MP4/GIF 播放器，支持手势缩放/窗宽窗位调节（调用 cornerstone.js 或自研 canvas 渲染）
+- **离线缓存**：已转换的结果可缓存到本地，方便查房时快速调阅
+- **分享**：生成临时分享链接（带密码+过期时间），而非直接发送文件
+
+---
+
+## 🚀 六、MVP 落地路线图
+
+| 阶段 | 目标 | 周期 |
+|------|------|------|
+| **P0** | FastAPI + Celery 封装现有脚本，提供 REST API + Swagger | 1 周 |
+| **P1** | 极简 Web 前端（拖拽上传 + 参数表单 + 下载链接） | 1 周 |
+| **P2** | 加入 GIF/WebM 输出、质量档位、合并开关 | 3 天 |
+| **P3** | 对象存储 + 自动清理 + 基础鉴权 | 3 天 |
+| **P4** | Flutter App（上传/查看/分享） | 2 周 |
+| **P5** | 私有化部署包 + 审计日志 + 去标识化 | 持续迭代 |
+
+---
+
+## 💡 七、差异化亮点建议
+
+1. **AI 辅助窗宽窗位**：集成轻量模型自动推荐骨窗/肺窗/脑窗，一键优化对比度
+2. **序列智能标注**：解析 SeriesDescription 自动命名输出文件（如 "头部_骨窗_1.25mm.mp4"）
+3. **批量患者处理**：支持一次上传多个患者压缩包，按 StudyInstanceUID 自动分组
+4. **嵌入 PACS**：提供 DICOMweb (WADO-RS) 接口，可直接从医院 PACS 拉取转换，无需手动下载压缩包
+5. **水印追溯**：输出视频角落添加不可见数字水印（含用户ID+时间戳），防止泄露溯源
+
+---
+
+## 🛠️ 八、立即可做的第一步
+
+把你现有的 `dicom_convert.py` 重构为纯函数库：
+
+```python
+# dicom_engine.py
+def convert_dicom_package(
+    archive_path: str,
+    output_dir: str,
+    format: Literal["mp4", "gif", "webm"] = "mp4",
+    quality: Literal["low", "medium", "high", "ultra"] = "medium",
+    merge: bool = False,
+    fps: int = 10,
+    progress_callback: Callable[[int, int, str], None] = None
+) -> list[str]:
+    """返回生成的文件路径列表"""
+    ...
+```
+
+然后用 FastAPI 暴露一个端点：
+```python
+@app.post("/convert")
+async def start_conversion(file: UploadFile, params: ConvertParams):
+    task = convert_task.delay(save_uploaded(file), params.dict())
+    return {"task_id": task.id}
+
+@app.get("/tasks/{task_id}")
+async def get_status(task_id: str):
+    task = AsyncResult(task_id)
+    return {"state": task.state, "meta": task.meta, "result": task.result}
+```
+
+这样你就有了可被 Web/App/桌面端共同调用的**统一转换内核**，后续所有端只是不同的 UI 壳子。
+

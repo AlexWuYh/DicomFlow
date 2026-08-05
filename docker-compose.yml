@@ -1,0 +1,42 @@
+services:
+  dicomflow:
+    build: .
+    image: dicomflow:local
+    container_name: dicomflow
+    ports:
+      - "8765:8765"
+    environment:
+      DICOMFLOW_HOST: "0.0.0.0"
+      DICOMFLOW_PORT: "8765"
+      DICOMFLOW_DATA_DIR: "/data"
+      DICOMFLOW_WEB_DIR: "/app/web"
+      # 单任务串行，避免 CT 转换占满内存
+      DICOMFLOW_WORKERS: "1"
+      # 公网务必设置强令牌；本地可留空
+      DICOMFLOW_ACCESS_TOKEN: "${DICOMFLOW_ACCESS_TOKEN:-}"
+      DICOMFLOW_ENABLE_DOCS: "false"
+      DICOMFLOW_RATE_LIMIT_RPM: "60"
+      DICOMFLOW_RATE_LIMIT_UPLOADS_PER_HOUR: "20"
+      # 生产示例: DICOMFLOW_ALLOWED_HOSTS=dicomflow.example.com
+      DICOMFLOW_ALLOWED_HOSTS: "*"
+      # 上传/转换结果保留时长（小时）
+      DICOMFLOW_JOB_TTL_HOURS: "24"
+      DICOMFLOW_CLEANUP_INTERVAL_SECONDS: "900"
+    volumes:
+      # 任务上传/解压/输出持久化
+      - dicomflow-data:/data
+      # 可选：把本地测试压缩包挂进容器（只读）
+      - ./input:/input:ro
+      # 开发时热更新前端（改 web/ 无需重建镜像）
+      - ./web:/app/web:ro
+    # 大文件上传与长转换：放宽健康检查启动时间
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  dicomflow-data:

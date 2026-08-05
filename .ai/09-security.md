@@ -12,6 +12,8 @@
 | 扩展名白名单 | zip/rar/7z/tar/gz/tgz | |
 | 安全响应头 | 启用 | nosniff, frame deny, CSP, no-store on API |
 | CORS | 关闭 | 仅当配置 `DICOMFLOW_CORS_ORIGINS` 时开放 |
+| `X-Forwarded-For` | **默认不信任** | 仅在可信反代后设 `TRUST_X_FORWARDED_FOR=true` |
+| 任务元数据 | SQLite | `data/dicomflow.db`，重启可查询历史任务状态 |
 
 ## 公网部署检查清单
 

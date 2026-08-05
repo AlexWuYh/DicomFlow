@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from dicomflow.core.timeutil import utc_now
+
 
 class OutputFormat(str, Enum):
     MP4 = "mp4"
@@ -79,7 +81,7 @@ class UploadRecord(BaseModel):
     filename: str
     size_bytes: int
     path: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class UploadResponse(BaseModel):
@@ -104,8 +106,8 @@ class JobRecord(BaseModel):
     progress: ProgressInfo = Field(default_factory=ProgressInfo)
     result: JobResult | None = None
     error: JobError | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     source_name: str | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
 

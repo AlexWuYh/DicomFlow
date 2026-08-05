@@ -22,6 +22,8 @@ services:
       # 上传/转换结果保留时长（小时）
       DICOMFLOW_JOB_TTL_HOURS: "24"
       DICOMFLOW_CLEANUP_INTERVAL_SECONDS: "900"
+      # 仅在可信反向代理后设为 true
+      DICOMFLOW_TRUST_X_FORWARDED_FOR: "false"
     volumes:
       # 任务上传/解压/输出持久化
       - dicomflow-data:/data

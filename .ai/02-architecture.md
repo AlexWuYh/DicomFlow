@@ -50,12 +50,13 @@ DicomFlow/
 │   ├── core/               # 配置、模型、异常
 │   ├── engine/             # 转换内核（无 FastAPI）
 │   ├── storage/            # StoragePort + Local 实现
-│   ├── tasks/              # QueuePort + InProcess 实现
-│   └── api/                # FastAPI 路由与依赖注入
-├── web/                    # 静态前端（MVP 单页）
+│   ├── tasks/              # QueuePort + InProcess + JobStore(SQLite) + cleanup
+│   └── api/                # FastAPI 路由、安全中间件、依赖注入
+├── web/                    # 静态前端
 ├── tests/
 ├── scripts/
-├── data/                   # 本地运行时目录（gitignore）
+├── data/                   # 运行时目录（gitignore）
+│   ├── dicomflow.db        # 上传/任务元数据
 │   ├── uploads/
 │   ├── work/
 │   └── outputs/

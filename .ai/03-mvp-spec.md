@@ -2,22 +2,23 @@
 
 ## 1. 范围
 
-本地 Web + REST API + 转换引擎 + CLI。  
-单用户，本机绑定，无登录。
+Web + REST API + 转换引擎 + CLI。  
+可选访问密码（`ACCESS_TOKEN`）；任务元数据 SQLite 持久化（`data/dicomflow.db`）。  
+上传/输出默认保留 24 小时后自动清理。
 
 ## 2. 用户可见流程
 
-1. 打开 `http://127.0.0.1:8765`
-2. 选择/拖入压缩包（zip 优先）
+1. 打开站点
+2. 上传压缩包（zip / rar 等）——与转换分离，可反复转换
 3. 设置参数：
    - 输出格式：MP4 | GIF
-   - 质量：低 | 标准 | 高清（默认高清）
+   - 清晰度：流畅 / 标准 / 高清（默认高清）
    - 合并为单个文件：开关（默认关）
-   - FPS（可选，默认 10）
-4. 开始转换 → 进度条（阶段 + 百分比）
-5. 完成后下载：
-   - 单序列且未要求 zip：直接媒体文件
-   - 多序列未合并：`result.zip`
+   - 帧率（默认 10）
+4. 开始转换 → **上传进度** 与 **转换进度** 分开显示
+5. 完成后在线预览（仅当前格式）并下载：
+   - 单序列：直接媒体文件
+   - 多序列未合并：`result.zip` + 各序列可预览
    - 合并：`merged.mp4` / `merged.gif`
 
 ## 3. 参数枚举
@@ -58,6 +59,10 @@ CONVERTING 中可带 meta: { series_index, series_total, frame_index, frame_tota
 | `ARCHIVE_BOMB` | 超出解压限制 |
 | `NO_DICOM` | 未发现有效图像 DICOM |
 | `CONVERT_ERROR` | 编码失败 |
+| `UPLOAD_TOO_LARGE` | 上传超过大小限制 |
+| `AUTH_REQUIRED` | 需要访问密码 |
+| `RATE_LIMITED` / `UPLOAD_RATE_LIMITED` | 请求/上传过于频繁 |
+| `INTERRUPTED` | 服务重启导致任务中断 |
 | `INTERNAL` | 未知错误 |
 
 ## 5. HTTP API（v1）

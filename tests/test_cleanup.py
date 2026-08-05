@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dicomflow.core.config import Settings
+from dicomflow.core.timeutil import utc_now
 from dicomflow.storage.local import LocalFilesystemStorage
 from dicomflow.tasks.cleanup import cleanup_expired_dirs, run_cleanup
 from dicomflow.tasks.inprocess import InProcessQueue
 from dicomflow.tasks.job_service import JobService
+from dicomflow.tasks.store import JobStore
 from dicomflow.core.models import ConvertParams, JobRecord, JobStatus, UploadRecord
 
 
@@ -42,7 +44,10 @@ def test_run_cleanup_purges_memory_and_disk(tmp_path: Path):
     )
     settings.ensure_dirs()
     storage = LocalFilesystemStorage(settings)
-    service = JobService(storage=storage, queue=InProcessQueue(1), settings=settings)
+    store = JobStore(settings.data_dir / "dicomflow.db")
+    service = JobService(
+        storage=storage, queue=InProcessQueue(1), settings=settings, store=store
+    )
 
     # Disk: old upload dir
     old_upload = settings.uploads_dir / "oldupload"
@@ -54,34 +59,40 @@ def test_run_cleanup_purges_memory_and_disk(tmp_path: Path):
     for p in [old_upload, old_upload / "a.zip"]:
         os.utime(p, (old_ts, old_ts))
 
-    # Memory: old records
+    # SQLite: old + fresh records
     old_dt = datetime.now(timezone.utc) - timedelta(hours=30)
-    with service._lock:
-        service._uploads["oldupload"] = UploadRecord(
+    store.save_upload(
+        UploadRecord(
             upload_id="oldupload",
             filename="a.zip",
             size_bytes=3,
             path=str(old_upload / "a.zip"),
-            created_at=old_dt.replace(tzinfo=None),
+            created_at=old_dt,
         )
-        service._jobs["oldjob"] = JobRecord(
+    )
+    store.save_job(
+        JobRecord(
             job_id="oldjob",
             upload_id="oldupload",
             status=JobStatus.SUCCEEDED,
             params=ConvertParams(),
-            created_at=old_dt.replace(tzinfo=None),
+            created_at=old_dt,
+            updated_at=old_dt,
         )
-        service._uploads["fresh"] = UploadRecord(
+    )
+    store.save_upload(
+        UploadRecord(
             upload_id="fresh",
             filename="b.zip",
             size_bytes=1,
             path="/tmp/x",
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
+    )
 
     stats = run_cleanup(settings, service)
     assert stats.removed_dirs >= 1
     assert not old_upload.exists()
-    assert "oldupload" not in service._uploads
-    assert "oldjob" not in service._jobs
-    assert "fresh" in service._uploads
+    assert store.get_upload("oldupload") is None
+    assert store.get_job("oldjob") is None
+    assert store.get_upload("fresh") is not None

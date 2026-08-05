@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import mimetypes
-import threading
+import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from dicomflow.core.config import Settings, get_settings
@@ -19,9 +19,13 @@ from dicomflow.core.models import (
     ProgressInfo,
     UploadRecord,
 )
+from dicomflow.core.timeutil import as_utc, to_iso, utc_now
 from dicomflow.engine.pipeline import ProgressEvent, convert_dicom_package
 from dicomflow.storage.base import StoragePort
 from dicomflow.tasks.base import QueuePort
+from dicomflow.tasks.store import JobStore
+
+logger = logging.getLogger(__name__)
 
 PREVIEW_EXTS = {".mp4", ".gif", ".webm"}
 
@@ -31,20 +35,27 @@ def _guess_type(name: str) -> str:
 
 
 class JobService:
-    """Orchestrates uploads + jobs in memory (MVP)."""
+    """Orchestrates uploads + jobs with SQLite-backed metadata."""
 
     def __init__(
         self,
         storage: StoragePort,
         queue: QueuePort,
         settings: Settings | None = None,
+        store: JobStore | None = None,
     ):
         self.storage = storage
         self.queue = queue
         self.settings = settings or get_settings()
-        self._jobs: dict[str, JobRecord] = {}
-        self._uploads: dict[str, UploadRecord] = {}
-        self._lock = threading.Lock()
+        if store is not None:
+            self.store = store
+        else:
+            db_path = self.settings.data_dir / "dicomflow.db"
+            self.store = JobStore(db_path)
+        # After restart, mark interrupted in-flight jobs
+        n = self.store.fail_stale_running()
+        if n:
+            logger.warning("Marked %s interrupted job(s) as FAILED after restart", n)
 
     # ── Upload ──────────────────────────────────────────────
 
@@ -67,49 +78,22 @@ class JobService:
             filename=filename,
             size_bytes=path.stat().st_size,
             path=str(path),
+            created_at=utc_now(),
         )
-        with self._lock:
-            self._uploads[upload_id] = rec
+        self.store.save_upload(rec)
         return rec
 
     def get_upload(self, upload_id: str) -> UploadRecord | None:
-        with self._lock:
-            return self._uploads.get(upload_id)
+        return self.store.get_upload(upload_id)
 
     def purge_older_than(self, cutoff: datetime) -> tuple[int, int]:
         """
-        Drop in-memory upload/job records older than cutoff.
-        Returns (uploads_removed, jobs_removed). Does not touch disk
-        (disk cleanup is handled separately by age of directories).
+        Drop persisted upload/job records older than cutoff.
+        Returns (uploads_removed, jobs_removed). Disk cleanup is separate.
         """
-        if cutoff.tzinfo is None:
-            cutoff = cutoff.replace(tzinfo=timezone.utc)
-
-        def _as_utc(dt: datetime) -> datetime:
-            if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-
-        uploads_removed = 0
-        jobs_removed = 0
-        with self._lock:
-            dead_uploads = [
-                uid
-                for uid, rec in self._uploads.items()
-                if _as_utc(rec.created_at) < cutoff
-            ]
-            for uid in dead_uploads:
-                del self._uploads[uid]
-                uploads_removed += 1
-
-            dead_jobs = [
-                jid
-                for jid, rec in self._jobs.items()
-                if _as_utc(rec.created_at) < cutoff
-            ]
-            for jid in dead_jobs:
-                del self._jobs[jid]
-                jobs_removed += 1
+        cutoff_iso = to_iso(as_utc(cutoff))
+        uploads_removed = self.store.delete_uploads_before(cutoff_iso)
+        jobs_removed = self.store.delete_jobs_before(cutoff_iso)
         return uploads_removed, jobs_removed
 
     # ── Jobs ────────────────────────────────────────────────
@@ -122,6 +106,7 @@ class JobService:
         if not upload_path.is_file():
             raise FileNotFoundError("upload file missing on disk")
 
+        now = utc_now()
         job_id = uuid.uuid4().hex
         record = JobRecord(
             job_id=job_id,
@@ -130,9 +115,10 @@ class JobService:
             params=params,
             source_name=upload.filename,
             progress=ProgressInfo(phase=JobPhase.PENDING, percent=0, message="排队中"),
+            created_at=now,
+            updated_at=now,
         )
-        with self._lock:
-            self._jobs[job_id] = record
+        self.store.save_job(record)
 
         def runner() -> None:
             self._run(job_id, upload_path)
@@ -141,16 +127,17 @@ class JobService:
         return record
 
     def get(self, job_id: str) -> JobRecord | None:
-        with self._lock:
-            return self._jobs.get(job_id)
+        return self.store.get_job(job_id)
 
     def _update(self, job_id: str, **kwargs) -> None:
-        with self._lock:
-            rec = self._jobs[job_id]
-            data = rec.model_dump()
-            data.update(kwargs)
-            data["updated_at"] = datetime.utcnow()
-            self._jobs[job_id] = JobRecord.model_validate(data)
+        rec = self.store.get_job(job_id)
+        if rec is None:
+            logger.warning("update skipped; job missing: %s", job_id)
+            return
+        data = rec.model_dump()
+        data.update(kwargs)
+        data["updated_at"] = utc_now()
+        self.store.save_job(JobRecord.model_validate(data))
 
     def _on_progress(self, job_id: str, event: ProgressEvent) -> None:
         phase = (
@@ -205,9 +192,7 @@ class JobService:
                 )
             )
 
-        # Series first (for gallery)
         for p in series_outputs:
-            # ensure under out_dir
             target = out_dir / p.name if p.parent != out_dir else p
             if target.exists():
                 add(target, "series")
@@ -221,7 +206,6 @@ class JobService:
         else:
             add(primary, "series")
 
-        # Any other media in out_dir
         for p in sorted(out_dir.iterdir()):
             if p.is_file() and p.suffix.lower() in PREVIEW_EXTS:
                 kind = "merged" if "merged" in p.name else "series"
@@ -256,14 +240,9 @@ class JobService:
             primary = result.output_files[0]
             published = self.storage.publish_output(job_id, primary)
 
-            # Publish all series for preview
             for sp in result.series_outputs:
                 if sp.exists():
                     self.storage.publish_output(job_id, sp)
-            # merged may already be primary
-            for p in out_dir.iterdir():
-                if p.is_file() and p.suffix.lower() in PREVIEW_EXTS | {".zip"}:
-                    pass  # already in place
 
             artifacts = self._build_artifacts(
                 out_dir,

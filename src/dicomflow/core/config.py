@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     rate_limit_uploads_per_hour: int = 20
     allowed_hosts: str = "*"  # comma-separated; use domain in production
     cors_origins: str = ""  # empty = no cross-origin; set explicit origins if needed
-    trust_x_forwarded_for: bool = True  # behind reverse proxy
+    # Only enable when a trusted reverse proxy sets X-Forwarded-For
+    trust_x_forwarded_for: bool = False
 
     @field_validator("access_token", mode="before")
     @classmethod

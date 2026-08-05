@@ -1,93 +1,88 @@
 # DicomFlow
 
-本地优先的 DICOM 压缩包 → MP4 / GIF 转换工具。  
-把 A 医院导出的源文件转成医生用普通播放器就能看的片子，便于跨院会诊传阅。
+把医院导出的 DICOM 压缩包（zip / rar）转成 **MP4 / GIF**，用手机或电脑自带播放器就能看，方便跨院会诊传阅。
 
-> 设计文档（供 AI / 开发阅读）：[`.ai/00-index.md`](.ai/00-index.md)
+> 设计与规格文档：[`.ai/00-index.md`](.ai/00-index.md)
 
-## 特性（MVP 目标）
+## 用户怎么用（网站）
 
-- 上传 / 选择 zip 等压缩包（本地）
-- 输出 **MP4** 或 **GIF**
-- **质量档位**（默认高清，面向医生查阅）
-- **合并开关**：多个序列合并为单个文件，或分别输出并打包 zip
-- 架构预留云端扩展（Storage / Queue 端口），当前默认本机单进程
+1. 打开站点（本地默认 http://127.0.0.1:8765 ）
+2. 上传医院给的压缩包
+3. 选择格式（MP4/GIF）、清晰度，可选「合并成一个文件」
+4. 开始转换 → 预览 → 下载  
+5. **结果默认只保留 24 小时**，请及时保存
 
-## 快速开始（Docker 推荐）
+若站点要求访问密码，向部署方索取即可（与安装配置无关的使用方式）。
+
+## 快速开始（Docker）
 
 ```bash
-# 构建并启动 Web
 docker compose up -d --build
-
-# 浏览器打开
 open http://127.0.0.1:8765
-
-# 查看日志（转换进度）
-docker compose logs -f dicomflow
-
-# 停止
-docker compose down
 ```
 
-数据目录挂载在 Docker volume `dicomflow-data`（容器内 `/data`）。  
-本地测试包可放在 `./input/`（compose 已只读挂载为 `/input`）。
-
-容器内直接转真实样例（可选）：
+公网部署前请设置访问密码（令牌）：
 
 ```bash
-docker compose exec dicomflow \
-  dicomflow convert -i /input/C252708.rar -o /data/outputs/manual --format mp4 --quality medium
+export DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d --build
 ```
 
-## 本地开发（不用 Docker）
+更多安全项见 [`.ai/09-security.md`](.ai/09-security.md)。
+
+## 本地开发
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# macOS 解压 rar 需要: brew install unar
-dicomflow convert -i ./input/C252708.rar -o ./out --format mp4 --quality medium
+# CLI
+dicomflow convert -i ./study.zip -o ./out --format mp4 --quality high
 dicomflow serve   # http://127.0.0.1:8765
+
+# 测试
+pytest -q
 ```
 
-兼容旧入口：`python dicom_convert.py -i ./input -o ./output -f mp4`
+macOS 解压 rar 可安装：`brew install unar`
+
+### 旧脚本（已废弃）
+
+`python dicom_convert.py ...` 仍可运行，内部已转发到新引擎；请改用：
+
+```bash
+dicomflow convert -i ... -o ...
+```
 
 ## 仓库结构
 
 ```
-.ai/                 # 产品与架构文档（AI 可读）
-src/dicomflow/       # 应用与转换引擎
-web/                 # 本地 Web 静态页
+.ai/              # 产品 / 架构 / 安全规格
+src/dicomflow/    # API、引擎、任务、存储
+web/              # 前端静态页
 tests/
-data/                # 运行时目录（gitignore）
-dicom_convert.py     # 原始 CLI 脚本（过渡保留）
+Dockerfile
+docker-compose.yml
 ```
 
-## 配置
+运行时数据（gitignore）：`data/`（含 `dicomflow.db`、uploads、outputs）
 
-环境变量见 `.env.example` 与 `dicomflow.core.config`。常用项：
+## 配置（常用）
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `DICOMFLOW_DATA_DIR` | `./data` | 上传/工作/输出根目录 |
-| `DICOMFLOW_HOST` | `127.0.0.1` | 服务绑定 |
-| `DICOMFLOW_PORT` | `8765` | 端口 |
-| `DICOMFLOW_ACCESS_TOKEN` | _(空)_ | **公网必设**；前端会提示输入 |
-| `DICOMFLOW_ENABLE_DOCS` | `false` | 是否开放 `/docs`（公网保持 false） |
-| `DICOMFLOW_MAX_UPLOAD_BYTES` | `1GiB` | 上传大小上限 |
-| `DICOMFLOW_RATE_LIMIT_RPM` | `60` | 每 IP 每分钟请求上限 |
-| `DICOMFLOW_JOB_TTL_HOURS` | `24` | 上传/转换结果自动清理时间 |
-| `DICOMFLOW_CLEANUP_INTERVAL_SECONDS` | `900` | 清理任务扫描间隔 |
+| `DICOMFLOW_DATA_DIR` | `./data` | 数据根目录 |
+| `DICOMFLOW_HOST` / `PORT` | `127.0.0.1` / `8765` | 监听 |
+| `DICOMFLOW_ACCESS_TOKEN` | 空 | 公网建议必设 |
+| `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI 文档开关 |
+| `DICOMFLOW_MAX_UPLOAD_BYTES` | 1GiB | 上传上限 |
+| `DICOMFLOW_JOB_TTL_HOURS` | `24` | 自动清理 |
+| `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | 仅可信反代后开启 |
+| `DICOMFLOW_ALLOWED_HOSTS` | `*` | 生产改为域名 |
 
-### 公网部署注意
-
-1. 设置长随机 `DICOMFLOW_ACCESS_TOKEN`
-2. 前置 HTTPS 反代
-3. 配置 `DICOMFLOW_ALLOWED_HOSTS=你的域名`
-4. 医疗数据敏感：优先内网；公网需尽快清理 `/data`
-5. 详见 [`.ai/09-security.md`](.ai/09-security.md)
+完整示例：`.env.example`
 
 ## 许可
 
-MIT（个人工具；非医疗器械，不替代专业诊断工作站。）
+MIT。非医疗器械，不替代专业阅片工作站，不作诊断依据。

@@ -952,6 +952,61 @@ body {
 .footer-inner a:hover {
   text-decoration: underline;
 }
+
+.license-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted) !important;
+  text-decoration: none !important;
+  font-weight: 500;
+  transition: color 0.2s var(--ease);
+}
+.license-link:hover {
+  color: var(--primary) !important;
+}
+.license-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 8px;
+}
+.license-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+/* License detail page */
+.page-license .license-body {
+  margin: 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 80%, var(--card));
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+.page-license .actions {
+  flex-wrap: wrap;
+}
+.page-license .actions .btn {
+  text-decoration: none;
+}
 .dot {
   width: 3px;
   height: 3px;

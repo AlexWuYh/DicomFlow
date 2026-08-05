@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8fafc" />
+    <meta name="description" content="DicomFlow MIT License" />
+    <title>开源许可 · DicomFlow</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("dicomflow-theme");
+          if (!t) {
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute("content", t === "dark" ? "#0b0b10" : "#f8fafc");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主内容</a>
+
+    <div class="aurora" aria-hidden="true">
+      <div class="blob blob-a"></div>
+      <div class="blob blob-b"></div>
+      <div class="blob blob-c"></div>
+    </div>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="10" fill="url(#bm)" />
+              <path d="M9 16h14M16 9v14" stroke="#fff" stroke-width="2.2" stroke-linecap="round" />
+              <circle cx="16" cy="16" r="5" stroke="#fff" stroke-width="1.5" opacity=".9" />
+              <defs>
+                <linearGradient id="bm" x1="4" y1="4" x2="28" y2="28">
+                  <stop stop-color="#2563eb" />
+                  <stop offset="1" stop-color="#f97316" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-name">DicomFlow</span>
+            <span class="brand-tag">片子转换</span>
+          </span>
+        </a>
+
+        <div class="nav-actions">
+          <a class="nav-link" href="/">返回首页</a>
+          <button type="button" class="icon-btn" id="theme-toggle" aria-label="切换主题" title="切换主题">
+            <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8" />
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 14.5A8.5 8.5 0 1110.5 3a7 7 0 0010.5 11.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="page page-license">
+      <section class="hero reveal">
+        <p class="eyebrow">开源许可</p>
+        <h1>MIT <span class="grad-text">License</span></h1>
+        <p class="hero-lead">
+          DicomFlow 以 MIT 协议开源。你可以自由使用、修改与分发，但需保留版权与许可声明。本软件按「现状」提供，不作担保。
+        </p>
+        <div class="feature-row">
+          <div class="feature-chip">Copyright © 2026 AlexWuYh</div>
+          <div class="feature-chip">免费使用</div>
+          <div class="feature-chip">可商用 / 可修改</div>
+        </div>
+      </section>
+
+      <section class="glass-card reveal" style="--d: 40ms" aria-labelledby="h-summary">
+        <h2 id="h-summary" class="tips-title">你可以做什么</h2>
+        <div class="tips-grid">
+          <div class="tip-item">
+            <span class="tip-num" aria-hidden="true">✓</span>
+            <div>
+              <strong>自由使用</strong>
+              <p>个人或商业场景均可使用本软件，无需额外付费授权。</p>
+            </div>
+          </div>
+          <div class="tip-item">
+            <span class="tip-num" aria-hidden="true">✓</span>
+            <div>
+              <strong>修改与分发</strong>
+              <p>可以修改源码，并以源码或二进制形式再分发。</p>
+            </div>
+          </div>
+          <div class="tip-item">
+            <span class="tip-num" aria-hidden="true">!</span>
+            <div>
+              <strong>保留声明</strong>
+              <p>分发时需保留版权声明与本许可全文（或等效副本）。</p>
+            </div>
+          </div>
+          <div class="tip-item">
+            <span class="tip-num" aria-hidden="true">!</span>
+            <div>
+              <strong>免责声明</strong>
+              <p>软件按现状提供，作者不对使用后果承担责任；不作医疗诊断用途。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card reveal" style="--d: 80ms" aria-labelledby="h-full">
+        <div class="card-top">
+          <div class="card-titles">
+            <h2 id="h-full">许可全文</h2>
+            <p>以下为英文原版 MIT License 正文</p>
+          </div>
+        </div>
+        <pre class="license-body" id="license-text">MIT License
+
+Copyright (c) 2026 AlexWuYh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+        <div class="actions" style="margin-top: 16px">
+          <a class="btn btn-primary" href="/">返回转换工具</a>
+          <a class="btn btn-secondary" href="https://github.com/AlexWuYh/DicomFlow/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span>DicomFlow</span>
+        <span class="dot" aria-hidden="true"></span>
+        <a class="license-link" href="/license.html">
+          <span class="license-badge">MIT</span>
+          <span>开源许可</span>
+        </a>
+        <span class="dot" aria-hidden="true"></span>
+        <span class="muted">仅供查阅与沟通，不作诊断依据</span>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById("theme-toggle");
+        function getTheme() {
+          return root.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        }
+        function setTheme(theme) {
+          root.setAttribute("data-theme", theme);
+          try {
+            localStorage.setItem("dicomflow-theme", theme);
+          } catch (e) {}
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", theme === "dark" ? "#0b0b10" : "#f8fafc");
+          if (btn) {
+            btn.setAttribute(
+              "aria-label",
+              theme === "dark" ? "切换到浅色主题" : "切换到深色主题"
+            );
+          }
+        }
+        if (btn) {
+          btn.addEventListener("click", function () {
+            setTheme(getTheme() === "dark" ? "light" : "dark");
+          });
+        }
+        setTheme(getTheme());
+      })();
+    </script>
+  </body>
+</html>

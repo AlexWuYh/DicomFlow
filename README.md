@@ -77,4 +77,6 @@ docker-compose.yml
 
 ## 许可
 
-MIT。非医疗器械，不替代专业阅片工作站，不作诊断依据。
+[MIT License](./LICENSE)。  
+
+非医疗器械，不替代专业阅片工作站，不作诊断依据。

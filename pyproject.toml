@@ -9,7 +9,7 @@ description = "Local-first DICOM archive to MP4/GIF converter for clinical revie
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "DicomFlow" }]
+authors = [{ name = "AlexWuYh" }]
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.32.0",

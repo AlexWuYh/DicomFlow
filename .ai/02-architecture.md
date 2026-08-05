@@ -81,41 +81,37 @@ delete_job_files(job_id) -> None
 ### 4.2 QueuePort
 
 ```text
-enqueue(job_id, payload) -> None
-get_status(job_id) -> JobStatus
+enqueue(job_id, runner) -> None
 ```
 
-- **InProcessQueue**：`asyncio`/`BackgroundTasks` + 线程池跑 CPU 密集转换。
-- **未来 CeleryQueue**：同一 `JobService.run_job` 作为 task body。
+- **InProcessQueue**：线程池执行转换（默认 max_workers=1）。
+- **未来 CeleryQueue**：同一 JobService 任务体。
 
-### 4.3 AuthPort（预留，MVP Noop）
+### 4.3 JobStore（元数据）
 
-- MVP：`NoopAuth`（本机信任）。
-- 未来：API Key / Session。
+- **SQLite**（`data/dicomflow.db`）：uploads / jobs 持久化。
+- 重启时将仍为 PENDING/RUNNING 的任务标为 FAILED（`INTERRUPTED`）。
 
-## 5. 任务数据流（本地）
+### 4.4 Auth
+
+- 可选 `DICOMFLOW_ACCESS_TOKEN`（请求头 `X-DicomFlow-Token`）。
+- OpenAPI 默认关闭。
+
+## 5. 任务数据流
 
 ```
-POST /api/v1/jobs  (multipart 文件 + 参数)
-  → 分配 job_id
-  → Storage 落盘 uploads/{job_id}/source.zip
-  → Job 元数据写入 memory/sqlite
-  → Queue.enqueue(job_id)
-  → 返回 { job_id }
+POST /api/v1/uploads  → 落盘 uploads/{upload_id}/ + SQLite
+POST /api/v1/jobs     → SQLite 建任务 + 队列转换
+GET  /api/v1/jobs/{id}
+GET  /api/v1/jobs/{id}/download | /files/{name}
 
 Worker:
   1. extract → work/{job_id}/raw/
   2. discover series
-  3. convert each series → work/{job_id}/out/*.mp4|gif
-  4. if merge: concat → out/merged.*
-     else if multi: zip → out/result.zip
-  5. 更新状态 SUCCEEDED + 输出路径
-
-GET /api/v1/jobs/{id}     → 状态与进度
-GET /api/v1/jobs/{id}/download → 文件
+  3. convert each series → outputs
+  4. merge 或 zip
+  5. 更新 SQLite 状态 + 产物列表
 ```
-
-大文件未来改为：前端直传 Storage → API 只收 `upload_key`。
 
 ## 6. 部署形态
 

@@ -38,3 +38,6 @@ outputs/
 *.mp4
 *.gif
 !web/**
+
+# Draft / brainstorm (local only)
+设计方案

@@ -145,7 +145,7 @@ Worker:
 - 日志：默认脱敏 PatientName/PatientID。
 - 不监听公网：默认 `127.0.0.1`。
 
-## 9. 与旧脚本关系
+## 9. CLI 入口
 
-- `dicom_convert.py`：保留为参考/兼容 CLI 入口，逻辑迁入 `engine/`。
-- 新 CLI：`python -m dicomflow convert -i ...` 直接调引擎，不经 HTTP。
+- 正式入口：`dicomflow convert` / `dicomflow serve`（包内 `cli.py`）。
+- 早期独立脚本已移除；逻辑在 `engine/`。

@@ -57,7 +57,7 @@ series_meta: list[SeriesInfo]
 
 | 行为 | 来源 | 处理 |
 |------|------|------|
-| 文件名窗位 `W2000L600` | `dicom_convert.py` | 保留 |
+| 文件名窗位 `W2000L600` | 早期实现 | 保留 |
 | 偶数维度 pad | 同上 | 保留 |
 | `force=True` 读取 | 同上 | 保留 |
 | 全帧列表内存 | 同上 | **改为流式** writer.append |

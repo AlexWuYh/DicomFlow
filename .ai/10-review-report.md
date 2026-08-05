@@ -57,7 +57,7 @@
 | ID | 项 | 说明 | 建议 |
 |----|----|------|------|
 | M1 | `datetime.utcnow()` 弃用 | 多处 DeprecationWarning | 统一 `datetime.now(timezone.utc)` |
-| M2 | 旧脚本 `dicom_convert.py` 仍在仓库 | 与引擎行为不一致（命名覆盖），易误导 | 标注 deprecated 或改为薄封装调 engine |
+| M2 | 旧脚本 `dicom_convert.py` 仍在仓库 | 易误导 | **已移除**，统一用 `dicomflow convert` |
 | M3 | 设计系统 `design-system/` 与 `.ai` 双轨 | 信息分散 | 在 README 指向一处为准 |
 | M4 | 无前端自动化测试 | 文案/鉴权/预览回归靠手测 | Playwright 冒烟：上传→转换→下载 |
 | M5 | GIF 质量上限与文案 | 用户选高清 GIF 仍被抽帧/缩边 | UI 提示 GIF 限制 |

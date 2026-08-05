@@ -4,7 +4,7 @@
 
 **新引擎（Web / `dicomflow convert`）按 `SeriesInstanceUID` 输出、文件名带序列号前缀，结果更正确。**
 
-旧脚本 `dicom_convert.py` 会在**同名 SeriesDescription** 时互相覆盖，磁盘上看到的 MP4 更少。
+早期独立脚本（已从仓库移除）会在**同名 SeriesDescription** 时互相覆盖，磁盘上看到的 MP4 更少。
 
 ## 实测：`input/C252708.rar`
 

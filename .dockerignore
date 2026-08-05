@@ -17,6 +17,5 @@ outputs
 *.gif
 .ai
 设计方案
-dicom_convert.py
 tests
 scripts

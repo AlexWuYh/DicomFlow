@@ -47,14 +47,6 @@ pytest -q
 
 macOS 解压 rar 可安装：`brew install unar`
 
-### 旧脚本（已废弃）
-
-`python dicom_convert.py ...` 仍可运行，内部已转发到新引擎；请改用：
-
-```bash
-dicomflow convert -i ... -o ...
-```
-
 ## 仓库结构
 
 ```

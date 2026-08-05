@@ -5,7 +5,7 @@
 - [x] `.ai` 设计文档
 - [x] 项目骨架（包结构、配置、端口、本地 Web）
 - [x] 引擎：发现 / 窗位+rescale / 流式 MP4 / GIF / 合并 / 安全解压
-- [x] CLI `convert` + `serve`；旧脚本 thin wrapper
+- [x] CLI `convert` + `serve`
 - [x] 单元测试 + 合成 DICOM 冒烟
 - [x] 真实医院 RAR 手工验证（本地）
 

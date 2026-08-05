@@ -953,6 +953,39 @@ body {
   text-decoration: underline;
 }
 
+.footer-author {
+  color: var(--muted-2);
+  font-weight: 500;
+}
+.footer-author a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.footer-author a:hover {
+  text-decoration: underline;
+}
+.footer-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted) !important;
+  text-decoration: none !important;
+  font-weight: 500;
+  transition: color 0.2s var(--ease);
+}
+.footer-github:hover {
+  color: var(--text) !important;
+}
+.footer-github:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 8px;
+}
+.footer-github svg {
+  flex-shrink: 0;
+}
+
 .license-link {
   display: inline-flex;
   align-items: center;

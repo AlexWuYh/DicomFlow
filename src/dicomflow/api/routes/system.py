@@ -17,9 +17,14 @@ def health():
 @router.get("/api/v1/bootstrap")
 def bootstrap(settings: Settings = Depends(get_app_settings)):
     """Minimal public config for the SPA (no secrets)."""
+    # Widget can render with site key alone; server still needs TURNSTILE_SECRET to verify
+    captcha_on = bool(settings.captcha_enabled and settings.turnstile_site_key)
     return {
         "version": __version__,
         "auth_required": bool(settings.access_token),
+        "captcha_enabled": captcha_on,
+        # Site key is public by design; secret never leaves the server
+        "captcha_site_key": settings.turnstile_site_key if captcha_on else None,
         "max_upload_bytes": settings.max_upload_bytes,
         "job_ttl_hours": settings.job_ttl_hours,
     }

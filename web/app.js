@@ -97,40 +97,20 @@
     });
   }
 
-  async function ensureAuth() {
-    try {
-      const res = await fetch("/api/v1/bootstrap");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.auth_required && !getToken()) {
-        await showAuthOverlay();
-      }
-    } catch (_) {}
-  }
-
-  async function apiFetch(url, options) {
-    const opts = options || {};
-    const headers = authHeaders(opts.headers || {});
-    let res = await fetch(url, Object.assign({}, opts, { headers }));
-    if (res.status === 401) {
-      let code = "";
-      try {
-        const body = await res.clone().json();
-        code = body.code || "";
-      } catch (_) {}
-      if (code === "AUTH_REQUIRED" || !code) {
-        await showAuthOverlay("密码不正确，请重新输入");
-        res = await fetch(url, Object.assign({}, opts, { headers: authHeaders(opts.headers || {}) }));
-      }
-    }
-    return res;
-  }
-
-  ensureAuth();
+  // ── Turnstile captcha (optional, server-toggled) ─────────
+  // When enabled: must pass captcha BEFORE file pick / drop / upload.
+  const captchaState = {
+    enabled: false,
+    siteKey: "",
+    token: "",
+    widgetId: null,
+    scriptLoading: null,
+  };
 
   const dropzone = $("dropzone");
   const fileInput = $("file-input");
   const dropLabel = $("drop-label");
+  const dropHint = $("drop-hint");
   const fileChip = $("file-chip");
   const fileNameEl = $("file-name");
   const fileSizeEl = $("file-size");
@@ -154,6 +134,217 @@
   const previewEmpty = $("preview-empty");
   const previewVideo = $("preview-video");
   const previewImage = $("preview-image");
+
+  function getCaptchaToken() {
+    if (!captchaState.enabled) return "";
+    if (captchaState.token) return captchaState.token;
+    const input = document.querySelector(
+      'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+    );
+    return input && input.value ? input.value : "";
+  }
+
+  /** When captcha is on, upload zone stays locked until a valid token exists. */
+  function isUploadUnlocked() {
+    if (!captchaState.enabled) return true;
+    return Boolean(getCaptchaToken());
+  }
+
+  function focusCaptchaGate(message) {
+    const wrap = $("captcha-wrap");
+    wrap?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (message) {
+      setError(message);
+      if (uploadMsg) uploadMsg.textContent = message;
+    }
+  }
+
+  function updateUploadGate() {
+    const unlocked = isUploadUnlocked();
+    const locked = captchaState.enabled && !unlocked;
+
+    if (dropzone) {
+      dropzone.classList.toggle("is-locked", locked);
+      dropzone.setAttribute("aria-disabled", locked ? "true" : "false");
+      if (locked) {
+        dropzone.setAttribute("aria-describedby", "drop-hint captcha-hint");
+      } else {
+        dropzone.setAttribute("aria-describedby", "drop-hint");
+      }
+    }
+
+    if (fileInput) {
+      // Block native file picker when locked (also covers label/programmatic click)
+      fileInput.disabled = locked;
+    }
+
+    if (clearFileBtn) {
+      // Allow clearing current selection even if captcha expired; re-pick is gated
+      clearFileBtn.disabled = false;
+    }
+
+    if (locked) {
+      if (dropLabel) dropLabel.textContent = "请先完成上方人机验证";
+      if (dropHint) dropHint.textContent = "验证通过后即可选择或拖入压缩包";
+      if (uploadBadge && uploadBadge.dataset.state === "idle") {
+        setUploadBadge("idle", "待验证");
+      }
+      if (uploadMsg && !state.uploading && !state.uploadId) {
+        uploadMsg.textContent = "请先完成人机验证，再选择文件";
+      }
+    } else if (captchaState.enabled) {
+      if (dropLabel && !state.file) {
+        dropLabel.textContent = "② 拖拽文件到这里，或点击选择";
+      }
+      if (dropHint && !state.file) {
+        dropHint.textContent = "支持较大的检查压缩包";
+      }
+      if (uploadBadge && uploadBadge.dataset.state === "idle") {
+        setUploadBadge("idle", "待上传");
+      }
+      if (uploadMsg && !state.uploading && !state.uploadId && !state.file) {
+        uploadMsg.textContent = "验证已通过，请选择要转换的文件";
+      }
+    }
+  }
+
+  function loadTurnstileScript() {
+    if (window.turnstile) return Promise.resolve();
+    if (captchaState.scriptLoading) return captchaState.scriptLoading;
+    captchaState.scriptLoading = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      s.async = true;
+      s.defer = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("人机验证脚本加载失败"));
+      document.head.appendChild(s);
+    });
+    return captchaState.scriptLoading;
+  }
+
+  function onCaptchaToken(token) {
+    captchaState.token = token || "";
+    const hint = $("captcha-hint");
+    if (hint) {
+      hint.textContent = "验证通过，请选择文件上传";
+      hint.classList.remove("is-error");
+    }
+    setError("");
+    updateUploadGate();
+  }
+
+  function onCaptchaExpired() {
+    captchaState.token = "";
+    const hint = $("captcha-hint");
+    if (hint) {
+      hint.textContent = "验证已过期，请重新完成人机验证后再选择文件";
+      hint.classList.add("is-error");
+    }
+    updateUploadGate();
+  }
+
+  function onCaptchaError(errorCode) {
+    captchaState.token = "";
+    const hint = $("captcha-hint");
+    if (!hint) return;
+    const host = location.hostname || "localhost";
+    const code = errorCode != null ? String(errorCode) : "";
+    // 110200 = domain not authorized (most common for local preview)
+    if (code === "110200" || !code) {
+      hint.textContent =
+        `人机验证加载失败（${code || "网络/域名"}）。请在 Cloudflare Turnstile 控制台把「${host}」和 localhost、127.0.0.1 加入 Hostname Management，保存后强制刷新本页。`;
+    } else {
+      hint.textContent = `人机验证失败（错误码 ${code}）。可尝试关闭广告拦截、换网络后刷新。`;
+    }
+    hint.classList.add("is-error");
+    updateUploadGate();
+  }
+
+  async function initCaptcha(siteKey) {
+    captchaState.enabled = true;
+    captchaState.siteKey = siteKey;
+    captchaState.token = "";
+    const wrap = $("captcha-wrap");
+    const el = $("turnstile-widget");
+    if (wrap) wrap.hidden = false;
+    // Lock immediately so user cannot pick files before challenge finishes
+    updateUploadGate();
+    if (!el || !siteKey) return;
+    try {
+      await loadTurnstileScript();
+      if (!window.turnstile) return;
+      if (captchaState.widgetId != null) {
+        try {
+          window.turnstile.reset(captchaState.widgetId);
+        } catch (_) {}
+        updateUploadGate();
+        return;
+      }
+      const theme = getTheme() === "dark" ? "dark" : "light";
+      captchaState.widgetId = window.turnstile.render(el, {
+        sitekey: siteKey,
+        theme,
+        action: "turnstile-spin-v2",
+        callback: onCaptchaToken,
+        "expired-callback": onCaptchaExpired,
+        "error-callback": onCaptchaError,
+      });
+      updateUploadGate();
+    } catch (e) {
+      const hint = $("captcha-hint");
+      if (hint) {
+        hint.textContent = String(e.message || e);
+        hint.classList.add("is-error");
+      }
+      updateUploadGate();
+    }
+  }
+
+  function resetCaptcha() {
+    captchaState.token = "";
+    if (captchaState.widgetId != null && window.turnstile) {
+      try {
+        window.turnstile.reset(captchaState.widgetId);
+      } catch (_) {}
+    }
+    updateUploadGate();
+  }
+
+  async function ensureAuth() {
+    try {
+      const res = await fetch("/api/v1/bootstrap");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.auth_required && !getToken()) {
+        await showAuthOverlay();
+      }
+      if (data.captcha_enabled && data.captcha_site_key) {
+        await initCaptcha(data.captcha_site_key);
+      } else {
+        captchaState.enabled = false;
+        updateUploadGate();
+      }
+    } catch (_) {}
+  }
+
+  async function apiFetch(url, options) {
+    const opts = options || {};
+    const headers = authHeaders(opts.headers || {});
+    let res = await fetch(url, Object.assign({}, opts, { headers }));
+    if (res.status === 401) {
+      let code = "";
+      try {
+        const body = await res.clone().json();
+        code = body.code || "";
+      } catch (_) {}
+      if (code === "AUTH_REQUIRED" || !code) {
+        await showAuthOverlay("密码不正确，请重新输入");
+        res = await fetch(url, Object.assign({}, opts, { headers: authHeaders(opts.headers || {}) }));
+      }
+    }
+    return res;
+  }
 
   const state = {
     file: null,
@@ -220,6 +411,13 @@
 
   function selectFile(file) {
     if (!file) return;
+    if (!isUploadUnlocked()) {
+      // Reset input so the same file can be re-chosen after captcha
+      if (fileInput) fileInput.value = "";
+      focusCaptchaGate("请先完成人机验证，再选择文件");
+      updateUploadGate();
+      return;
+    }
     state.file = file;
     state.uploadId = null;
     state.jobId = null;
@@ -247,9 +445,19 @@
   }
 
   function startUpload(file) {
+    if (!isUploadUnlocked()) {
+      state.uploading = false;
+      setUploadBadge("idle", "待验证");
+      updateConvertEnabled();
+      focusCaptchaGate("请先完成人机验证，再上传");
+      updateUploadGate();
+      return;
+    }
+
     state.uploading = true;
     updateConvertEnabled();
     uploadMsg.textContent = "正在上传文件…";
+    setError("");
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/v1/uploads");
@@ -289,19 +497,29 @@
         uploadMsg.textContent = `上传成功：${xhr.response.filename || file.name}（${formatBytes(
           xhr.response.size_bytes || file.size
         )}）`;
+        // Token is one-time; reset so a re-upload gets a fresh challenge
+        resetCaptcha();
         updateConvertEnabled();
         return;
       }
       let detail = "";
+      let code = "";
       try {
         const body = typeof xhr.response === "object" ? xhr.response : null;
         detail = body?.detail || body?.message || xhr.responseText || xhr.statusText;
+        code = body?.code || "";
         if (typeof detail === "object") detail = JSON.stringify(detail);
       } catch {
         detail = xhr.statusText;
       }
+      // Captcha failed / expired — refresh widget for retry
+      if (code.startsWith("CAPTCHA") || xhr.status === 400) {
+        resetCaptcha();
+      }
       setUploadBadge("error", "失败");
-      uploadMsg.textContent = "上传失败，请重试";
+      uploadMsg.textContent = code.startsWith("CAPTCHA")
+        ? "人机验证未通过，请重试"
+        : "上传失败，请重试";
       setError(`上传失败：${detail || "请检查文件后重试"}`);
       updateConvertEnabled();
     };
@@ -316,6 +534,10 @@
 
     const body = new FormData();
     body.append("file", file);
+    const captchaTok = getCaptchaToken();
+    if (captchaTok) {
+      body.append("cf-turnstile-response", captchaTok);
+    }
     xhr.send(body);
   }
 
@@ -569,16 +791,33 @@
       .replace(/"/g, "&quot;");
   }
 
-  dropzone.addEventListener("click", () => fileInput.click());
+  function openFilePicker() {
+    if (!isUploadUnlocked()) {
+      focusCaptchaGate("请先完成人机验证，再选择文件");
+      updateUploadGate();
+      return;
+    }
+    fileInput.click();
+  }
+
+  dropzone.addEventListener("click", (e) => {
+    // Ignore clicks originating from nested controls if any
+    e.preventDefault();
+    openFilePicker();
+  });
   dropzone.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      fileInput.click();
+      openFilePicker();
     }
   });
   ["dragenter", "dragover"].forEach((ev) => {
     dropzone.addEventListener(ev, (e) => {
       e.preventDefault();
+      if (!isUploadUnlocked()) {
+        dropzone.classList.remove("dragover");
+        return;
+      }
       dropzone.classList.add("dragover");
     });
   });
@@ -589,6 +828,12 @@
     });
   });
   dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (!isUploadUnlocked()) {
+      focusCaptchaGate("请先完成人机验证，再拖入文件");
+      updateUploadGate();
+      return;
+    }
     const file = e.dataTransfer.files?.[0];
     if (file) selectFile(file);
   });
@@ -603,14 +848,14 @@
     state.converting = false;
     fileInput.value = "";
     fileChip.hidden = true;
-    dropLabel.textContent = "拖拽文件到这里，或点击选择";
     setBar(uploadBar, uploadWrap, uploadPct, 0);
-    uploadMsg.textContent = "请先选择要转换的文件";
-    setUploadBadge("idle", "待上传");
     resultPanel.hidden = true;
     clearPreviewMedia();
     updateConvertEnabled();
+    updateUploadGate();
   });
   convertBtn.addEventListener("click", startConvert);
   updateConvertEnabled();
+  // Bootstrap auth + captcha after UI hooks are ready (gates dropzone when captcha on)
+  ensureAuth();
 })();

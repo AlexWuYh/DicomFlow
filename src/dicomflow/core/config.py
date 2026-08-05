@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +15,25 @@ def _default_web_dir() -> Path:
     if candidate.is_dir():
         return candidate
     return here.parents[1] / "static"
+
+
+def _read_env_file_value(name: str, path: Path = Path(".env")) -> str | None:
+    """Read a single KEY=value from a dotenv file (no secret logging)."""
+    if not path.is_file():
+        return None
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            if key.strip() != name:
+                continue
+            val = val.strip().strip("'").strip('"')
+            return val or None
+    except OSError:
+        return None
+    return None
 
 
 class Settings(BaseSettings):
@@ -51,13 +74,45 @@ class Settings(BaseSettings):
     # Only enable when a trusted reverse proxy sets X-Forwarded-For
     trust_x_forwarded_for: bool = False
 
-    @field_validator("access_token", mode="before")
+    # Cloudflare Turnstile (optional human verification; independent of access_token)
+    captcha_enabled: bool = False
+    turnstile_site_key: str | None = None
+    # Prefer unprefixed TURNSTILE_SECRET (Spin canonical); see resolve_turnstile_secret
+    turnstile_secret_key: str | None = None
+
+    @field_validator("access_token", "turnstile_site_key", "turnstile_secret_key", mode="before")
     @classmethod
-    def empty_token_as_none(cls, v):  # noqa: ANN001
+    def empty_str_as_none(cls, v):  # noqa: ANN001
         if v is None:
             return None
         s = str(v).strip()
         return s or None
+
+    @model_validator(mode="after")
+    def resolve_turnstile_secret(self) -> Self:
+        """
+        Secret resolution order (never log the value):
+        1. DICOMFLOW_TURNSTILE_SECRET_KEY (already on turnstile_secret_key)
+        2. TURNSTILE_SECRET process env (canonical Spin / Cloudflare name)
+        3. TURNSTILE_SECRET in .env file
+        """
+        if self.turnstile_secret_key:
+            return self
+        secret = os.environ.get("TURNSTILE_SECRET")
+        if not secret or not str(secret).strip():
+            secret = _read_env_file_value("TURNSTILE_SECRET")
+        if secret and str(secret).strip():
+            self.turnstile_secret_key = str(secret).strip()
+        return self
+
+    @property
+    def captcha_active(self) -> bool:
+        """True only when captcha is switched on and both Turnstile keys are set."""
+        return bool(
+            self.captcha_enabled
+            and self.turnstile_site_key
+            and self.turnstile_secret_key
+        )
 
     @property
     def uploads_dir(self) -> Path:

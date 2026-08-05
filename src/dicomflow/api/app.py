@@ -89,6 +89,20 @@ def create_app() -> FastAPI:
             "Access token is NOT set — API is open to anyone who can reach the host. "
             "Set DICOMFLOW_ACCESS_TOKEN before public deployment."
         )
+    if settings.captcha_active:
+        logger.info("Turnstile captcha is ENABLED (upload protected via siteverify)")
+    elif settings.captcha_enabled and settings.turnstile_site_key:
+        logger.error(
+            "CAPTCHA_ENABLED=true and site key set, but TURNSTILE_SECRET is missing — "
+            "widget may render; uploads will fail siteverify until secret is set"
+        )
+    elif settings.captcha_enabled:
+        logger.error(
+            "CAPTCHA_ENABLED=true but Turnstile site key / TURNSTILE_SECRET missing — "
+            "uploads that require captcha will fail until keys are set"
+        )
+    else:
+        logger.info("Turnstile captcha is DISABLED (DICOMFLOW_CAPTCHA_ENABLED=false)")
     if settings.enable_docs:
         logger.warning("OpenAPI docs are ENABLED at /docs — disable for public deploy")
 

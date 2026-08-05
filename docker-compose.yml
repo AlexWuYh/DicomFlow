@@ -14,6 +14,13 @@ services:
       DICOMFLOW_WORKERS: "1"
       # 公网务必设置强令牌；本地可留空
       DICOMFLOW_ACCESS_TOKEN: "${DICOMFLOW_ACCESS_TOKEN:-}"
+      # 人机验证（Turnstile）可开关；开启时需 site key + TURNSTILE_SECRET
+      DICOMFLOW_CAPTCHA_ENABLED: "${DICOMFLOW_CAPTCHA_ENABLED:-false}"
+      DICOMFLOW_TURNSTILE_SITE_KEY: "${DICOMFLOW_TURNSTILE_SITE_KEY:-}"
+      # Canonical Spin / Cloudflare secret name
+      TURNSTILE_SECRET: "${TURNSTILE_SECRET:-}"
+      # Optional legacy alias
+      DICOMFLOW_TURNSTILE_SECRET_KEY: "${DICOMFLOW_TURNSTILE_SECRET_KEY:-}"
       DICOMFLOW_ENABLE_DOCS: "false"
       DICOMFLOW_RATE_LIMIT_RPM: "60"
       DICOMFLOW_RATE_LIMIT_UPLOADS_PER_HOUR: "20"

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
+from dicomflow.api.captcha import CaptchaError, verify_turnstile
 from dicomflow.api.deps import get_app_settings, get_job_service
+from dicomflow.api.security import client_ip
 from dicomflow.api.upload_validate import validate_upload_filename
 from dicomflow.core.config import Settings
 from dicomflow.core.exceptions import UploadTooLargeError
@@ -19,13 +21,46 @@ from dicomflow.tasks.job_service import JobService
 router = APIRouter()
 
 
+def _captcha_http_error(exc: CaptchaError) -> JSONResponse:
+    status = 400
+    if exc.code == "CAPTCHA_MISCONFIGURED":
+        status = 503
+    elif exc.code == "CAPTCHA_UNAVAILABLE":
+        status = 503
+    return JSONResponse(
+        status_code=status,
+        content={"detail": exc.message, "code": exc.code},
+    )
+
+
 @router.post("/uploads", response_model=UploadResponse, status_code=201)
 async def create_upload(
+    request: Request,
     file: UploadFile = File(...),
+    # Cloudflare Turnstile widget posts as cf-turnstile-response; also accept alias
+    cf_turnstile_response: str | None = Form(None, alias="cf-turnstile-response"),
+    turnstile_token: str | None = Form(None),
     service: JobService = Depends(get_job_service),
     settings: Settings = Depends(get_app_settings),
 ):
     """Upload archive only. Conversion starts later via POST /jobs."""
+    token = (cf_turnstile_response or turnstile_token or "").strip() or None
+    # Header fallback (handy for non-form clients / tests)
+    if not token:
+        token = request.headers.get("cf-turnstile-response") or request.headers.get(
+            "x-turnstile-token"
+        )
+    try:
+        verify_turnstile(
+            token,
+            settings=settings,
+            remoteip=client_ip(
+                request, trust_x_forwarded_for=settings.trust_x_forwarded_for
+            ),
+        )
+    except CaptchaError as exc:
+        return _captcha_http_error(exc)
+
     safe_name = validate_upload_filename(file.filename, settings)
     try:
         rec = service.create_upload(

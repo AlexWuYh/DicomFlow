@@ -102,7 +102,24 @@
           <span class="status-pill" id="upload-status-badge" data-state="idle">待上传</span>
         </div>
 
-        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-describedby="drop-hint">
+        <!-- Captcha first: unlocks the dropzone when enabled -->
+        <div class="captcha-wrap" id="captcha-wrap" hidden>
+          <p class="captcha-label" id="captcha-label">① 先完成人机验证</p>
+          <div
+            class="cf-turnstile"
+            id="turnstile-widget"
+            data-action="turnstile-spin-v2"
+          ></div>
+          <p class="captcha-hint" id="captcha-hint">验证通过后即可选择文件上传（多数情况自动通过）</p>
+        </div>
+
+        <div
+          class="dropzone"
+          id="dropzone"
+          tabindex="0"
+          role="button"
+          aria-describedby="drop-hint"
+        >
           <input
             id="file-input"
             type="file"

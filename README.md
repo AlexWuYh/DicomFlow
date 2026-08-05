@@ -66,7 +66,10 @@ docker-compose.yml
 |------|------|------|
 | `DICOMFLOW_DATA_DIR` | `./data` | 数据根目录 |
 | `DICOMFLOW_HOST` / `PORT` | `127.0.0.1` / `8765` | 监听 |
-| `DICOMFLOW_ACCESS_TOKEN` | 空 | 公网建议必设 |
+| `DICOMFLOW_ACCESS_TOKEN` | 空 | 公网建议必设（访问密码，可开关） |
+| `DICOMFLOW_CAPTCHA_ENABLED` | `false` | 人机验证开关（Cloudflare Turnstile） |
+| `DICOMFLOW_TURNSTILE_SITE_KEY` | 空 | 开启 captcha 时必填（公开 site key） |
+| `TURNSTILE_SECRET` | 空 | 开启 captcha 时必填（服务端 secret，勿提交） |
 | `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI 文档开关 |
 | `DICOMFLOW_MAX_UPLOAD_BYTES` | 1GiB | 上传上限 |
 | `DICOMFLOW_JOB_TTL_HOURS` | `24` | 自动清理 |

@@ -467,7 +467,7 @@ body {
   background: color-mix(in srgb, var(--primary) 4%, transparent);
   cursor: pointer;
   transition: border-color 0.2s var(--ease), background 0.2s var(--ease),
-    transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+    transform 0.2s var(--ease), box-shadow 0.2s var(--ease), opacity 0.2s var(--ease);
   outline: none;
 }
 .dropzone:hover,
@@ -477,6 +477,28 @@ body {
   background: rgba(37, 99, 235, 0.1);
   box-shadow: var(--focus);
   transform: translateY(-1px);
+}
+/* Locked until human verification succeeds */
+.dropzone.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--muted-2) 8%, transparent);
+  border-color: color-mix(in srgb, var(--muted-2) 40%, var(--border));
+  box-shadow: none;
+  transform: none;
+}
+.dropzone.is-locked:hover,
+.dropzone.is-locked:focus-visible,
+.dropzone.is-locked.dragover {
+  border-color: color-mix(in srgb, var(--muted-2) 40%, var(--border));
+  background: color-mix(in srgb, var(--muted-2) 8%, transparent);
+  box-shadow: none;
+  transform: none;
+}
+.dropzone.is-locked .drop-icon {
+  color: var(--muted-2);
+  background: color-mix(in srgb, var(--muted-2) 12%, transparent);
+  border-color: color-mix(in srgb, var(--muted-2) 20%, transparent);
 }
 .drop-inner {
   min-height: 132px;
@@ -521,6 +543,35 @@ body {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 70%, transparent);
 }
+.captcha-wrap {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--glass-border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+}
+.captcha-wrap[hidden] {
+  display: none !important;
+}
+.captcha-label {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.captcha-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted-2);
+  line-height: 1.45;
+}
+.captcha-hint.is-error {
+  color: var(--danger);
+}
+.cf-turnstile {
+  min-height: 65px;
+}
+
 .file-chip-body {
   flex: 1;
   min-width: 0;

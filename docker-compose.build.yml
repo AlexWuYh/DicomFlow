@@ -1,0 +1,11 @@
+# Optional overlay: build image from local Dockerfile instead of (or in addition to) GHCR.
+# Usage (repo root, Dockerfile must exist):
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# You need the full git checkout (Dockerfile + src + web), not only this compose file.
+services:
+  dicomflow:
+    build: .
+    # Tag the built image so it matches the main compose image name
+    image: ${DICOMFLOW_IMAGE:-dicomflow:local}
+    pull_policy: never

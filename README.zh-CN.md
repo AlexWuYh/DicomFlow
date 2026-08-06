@@ -20,7 +20,7 @@
 
 ### Docker Compose（默认使用 GHCR `latest`）
 
-`docker-compose.yml` 默认镜像为 **`ghcr.io/alexwuyh/dicomflow:latest`**，同时保留 `build: .` 以便本地重新编译。
+**使用 GHCR 时不需要 Dockerfile**，只要本机有 Docker，且能访问 `ghcr.io`。
 
 | 标签 | 镜像 |
 |------|------|
@@ -29,16 +29,26 @@
 | 包页面 | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
 
 ```bash
-# 拉取并启动（无需本地 build）
+# 拉取并启动（不需要源码目录 / Dockerfile）
 docker compose pull
 docker compose up -d
-open http://127.0.0.1:8765
+# 打开 http://127.0.0.1:8765
 
-# 从源码构建（仍会打上同一镜像名）
-docker compose up -d --build
-
-# 覆盖镜像
+# 固定版本
 DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0 docker compose up -d
+```
+
+若出现 `ghcr.io` **超时**，先解决网络/代理/镜像加速；默认 **不会** 自动本地编译。只有完整 clone 仓库后才可：
+
+```bash
+# 需要 Dockerfile + src + web
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+开发挂载（热更新 `web/`、`./input`）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 ```bash

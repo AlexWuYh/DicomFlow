@@ -20,7 +20,7 @@ If the site asks for an access password, request it from the operator (end users
 
 ### Docker Compose (default: GHCR `latest`)
 
-`docker-compose.yml` uses **`ghcr.io/alexwuyh/dicomflow:latest`** by default (still keeps `build: .` for local rebuild).
+**Using GHCR does not require a Dockerfile** — only Docker and network access to `ghcr.io`.
 
 | Tag | Image |
 |-----|--------|
@@ -29,16 +29,26 @@ If the site asks for an access password, request it from the operator (end users
 | Package page | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
 
 ```bash
-# Pull + run (no local build required)
+# Pull + run (no source tree / Dockerfile needed)
 docker compose pull
 docker compose up -d
-open http://127.0.0.1:8765
+# open http://127.0.0.1:8765
 
-# Or build from source and tag as the same image name
-docker compose up -d --build
-
-# Pin / override image
+# Pin a version
 DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0 docker compose up -d
+```
+
+If `ghcr.io` is unreachable (timeout), fix network/mirror/proxy first — Compose will **not** build from source unless you ask:
+
+```bash
+# Full git clone required (Dockerfile + src + web):
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+Optional dev mounts (hot-reload `web/`, `./input`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 ```bash

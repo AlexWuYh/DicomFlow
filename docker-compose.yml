@@ -1,12 +1,10 @@
+# Default: pull prebuilt image from GHCR (no Dockerfile required).
+# Local source build: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   dicomflow:
-    # Default: pull published image from GHCR (main branch CI).
-    # Override: DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0
-    #           or DICOMFLOW_IMAGE=dicomflow:local
-    # Local build still available: docker compose up -d --build
-    #   (build tags the result as the same image name)
     image: ${DICOMFLOW_IMAGE:-ghcr.io/alexwuyh/dicomflow:latest}
-    build: .
+    # Prefer pulling; do not fall back to a local build when the registry is unreachable
+    pull_policy: ${DICOMFLOW_PULL_POLICY:-missing}
     container_name: dicomflow
     ports:
       - "8765:8765"
@@ -37,13 +35,9 @@ services:
       # 仅在可信反向代理后设为 true
       DICOMFLOW_TRUST_X_FORWARDED_FOR: "false"
     volumes:
-      # 任务上传/解压/输出持久化
+      # 任务上传/解压/输出持久化（不依赖宿主机源码目录）
       - dicomflow-data:/data
-      # 可选：把本地测试压缩包挂进容器（只读）
-      - ./input:/input:ro
-      # 开发时热更新前端（改 web/ 无需重建镜像）
-      - ./web:/app/web:ro
-    # 大文件上传与长转换：放宽健康检查启动时间
+      # 可选：仅在有本地 input/ 时再挂载测试包（见 docker-compose.dev.yml）
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
       interval: 30s

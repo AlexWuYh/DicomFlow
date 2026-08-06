@@ -4,8 +4,6 @@
 
 把医院导出的 DICOM 压缩包（**zip / rar**）转成 **MP4 / GIF**，用手机或电脑自带播放器就能看，方便跨院会诊传阅。
 
-> 设计与规格文档：[`.ai/00-index.md`](.ai/00-index.md)
-
 ## 用户怎么用（网站）
 
 1. 打开站点（本地默认 http://127.0.0.1:8765 ）
@@ -84,7 +82,7 @@ export DICOMFLOW_TURNSTILE_SITE_KEY="你的 site key"
 export TURNSTILE_SECRET="你的 secret"   # 勿写入仓库
 ```
 
-更多安全项见 [`.ai/09-security.md`](.ai/09-security.md)。
+公网部署请设置强 `DICOMFLOW_ACCESS_TOKEN`、使用 HTTPS，并保持 `DICOMFLOW_ENABLE_DOCS=false`。可选人机验证见下方配置表。
 
 ## 本地开发
 
@@ -106,7 +104,6 @@ macOS 解压 rar 可安装：`brew install unar`
 ## 仓库结构
 
 ```
-.ai/              # 产品 / 架构 / 安全规格
 src/dicomflow/    # API、引擎、任务、存储
 web/              # 前端静态页
 tests/

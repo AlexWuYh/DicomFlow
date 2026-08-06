@@ -4,8 +4,6 @@
 
 Convert hospital DICOM archives (**zip / rar**) into **MP4 / GIF** that any phone or desktop player can open — handy for cross-hospital review and sharing.
 
-> Design & specs: [`.ai/00-index.md`](.ai/00-index.md)
-
 ## How to use (web)
 
 1. Open the site (local default: http://127.0.0.1:8765 )
@@ -84,7 +82,7 @@ export DICOMFLOW_TURNSTILE_SITE_KEY="your-site-key"
 export TURNSTILE_SECRET="your-secret"   # never commit this
 ```
 
-More security notes: [`.ai/09-security.md`](.ai/09-security.md).
+For public deploy: set a strong `DICOMFLOW_ACCESS_TOKEN`, use HTTPS, and keep `DICOMFLOW_ENABLE_DOCS=false`. Optional Turnstile captcha via `DICOMFLOW_CAPTCHA_ENABLED` + keys (see configuration table below).
 
 ## Local development
 
@@ -106,7 +104,6 @@ On macOS, RAR extraction: `brew install unar`
 ## Repository layout
 
 ```
-.ai/              # product / architecture / security specs
 src/dicomflow/    # API, engine, tasks, storage
 web/              # static frontend
 tests/

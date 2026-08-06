@@ -18,35 +18,37 @@
 
 ## 快速开始（Docker）
 
-### 本地构建
+### Docker Compose（默认使用 GHCR `latest`）
 
-```bash
-docker compose up -d --build
-open http://127.0.0.1:8765
-```
-
-### 使用已发布镜像（GHCR）
-
-每次推送到 `main` 会自动构建并推送到 GitHub Container Registry：
+`docker-compose.yml` 默认镜像为 **`ghcr.io/alexwuyh/dicomflow:latest`**，同时保留 `build: .` 以便本地重新编译。
 
 | 标签 | 镜像 |
 |------|------|
-| 版本号 | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
-| 最新 | `ghcr.io/alexwuyh/dicomflow:latest` |
+| 最新（compose 默认） | `ghcr.io/alexwuyh/dicomflow:latest` |
+| 固定版本 | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
 | 包页面 | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
 
 ```bash
-# 拉取
-docker pull ghcr.io/alexwuyh/dicomflow:latest
+# 拉取并启动（无需本地 build）
+docker compose pull
+docker compose up -d
+open http://127.0.0.1:8765
 
-# 运行（数据落在命名卷）
+# 从源码构建（仍会打上同一镜像名）
+docker compose up -d --build
+
+# 覆盖镜像
+DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0 docker compose up -d
+```
+
+```bash
+# 直接 docker run
+docker pull ghcr.io/alexwuyh/dicomflow:latest
 docker run -d --name dicomflow \
   -p 8765:8765 \
   -v dicomflow-data:/data \
   -e DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)" \
   ghcr.io/alexwuyh/dicomflow:latest
-
-# 或用 Compose：将 image 设为 ghcr.io/alexwuyh/dicomflow:latest（无需本地 build）
 ```
 
 若包为私有，先登录：
@@ -61,7 +63,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 
 ```bash
 export DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d --build
+docker compose up -d
 ```
 
 可选人机验证（Cloudflare Turnstile），与访问密码相互独立：

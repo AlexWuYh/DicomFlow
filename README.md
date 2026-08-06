@@ -18,36 +18,37 @@ If the site asks for an access password, request it from the operator (end users
 
 ## Quick start (Docker)
 
-### Build locally
+### Docker Compose (default: GHCR `latest`)
 
-```bash
-docker compose up -d --build
-open http://127.0.0.1:8765
-```
-
-### Use the published image (GHCR)
-
-Images are published to GitHub Container Registry on every push to `main`:
+`docker-compose.yml` uses **`ghcr.io/alexwuyh/dicomflow:latest`** by default (still keeps `build: .` for local rebuild).
 
 | Tag | Image |
 |-----|--------|
-| Version | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
-| Latest | `ghcr.io/alexwuyh/dicomflow:latest` |
+| Latest (compose default) | `ghcr.io/alexwuyh/dicomflow:latest` |
+| Version pin | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
 | Package page | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
 
 ```bash
-# Pull
-docker pull ghcr.io/alexwuyh/dicomflow:latest
+# Pull + run (no local build required)
+docker compose pull
+docker compose up -d
+open http://127.0.0.1:8765
 
-# Run (data persisted in a named volume)
+# Or build from source and tag as the same image name
+docker compose up -d --build
+
+# Pin / override image
+DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0 docker compose up -d
+```
+
+```bash
+# Plain docker run
+docker pull ghcr.io/alexwuyh/dicomflow:latest
 docker run -d --name dicomflow \
   -p 8765:8765 \
   -v dicomflow-data:/data \
   -e DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)" \
   ghcr.io/alexwuyh/dicomflow:latest
-
-# Or with Compose (override the image instead of building)
-# image: ghcr.io/alexwuyh/dicomflow:latest
 ```
 
 If the package is private, authenticate first:
@@ -62,7 +63,7 @@ Before public exposure, set an access password (token):
 
 ```bash
 export DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d --build
+docker compose up -d
 ```
 
 Optional human verification (Cloudflare Turnstile), independent of the access password:

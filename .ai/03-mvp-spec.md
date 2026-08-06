@@ -1,203 +1,102 @@
-# MVP 功能规格
+# 功能规格（与实现对齐）
 
 ## 1. 范围
 
 Web + REST API + 转换引擎 + CLI。  
-可选访问密码（`ACCESS_TOKEN`）；任务元数据 SQLite 持久化（`data/dicomflow.db`）。  
-上传/输出默认保留 24 小时后自动清理。
+可选访问密码；可选 Turnstile 人机验证（仅上传）；任务元数据 SQLite；上传/输出默认 **24h** 自动清理。
 
 ## 2. 用户可见流程
 
-1. 打开站点
-2. 上传压缩包（zip / rar 等）——与转换分离，可反复转换
-3. 设置参数：
-   - 输出格式：MP4 | GIF
-   - 清晰度：流畅 / 标准 / 高清（默认高清）
-   - 合并为单个文件：开关（默认关）
-   - 帧率（默认 10）
-4. 开始转换 → **上传进度** 与 **转换进度** 分开显示
-5. 完成后在线预览（仅当前格式）并下载：
-   - 单序列：直接媒体文件
-   - 多序列未合并：`result.zip` + 各序列可预览
-   - 合并：`merged.mp4` / `merged.gif`
+1. 打开站点（若要求：访问密码 → 人机验证）  
+2. 上传压缩包（zip/rar 等）——与转换分离，同一 `upload_id` 可多次转换  
+3. 参数：格式 MP4|GIF、清晰度、是否合并、帧率  
+4. 转换：上传进度与转换进度分离  
+5. 预览（当前格式）+ 下载（单文件 / zip / merged）
 
-## 3. 参数枚举
+## 3. 参数
 
 ```text
-ConvertParams:
-  format: "mp4" | "gif"          # 默认 mp4
+ConvertParams / JobStartRequest:
+  format: "mp4" | "gif"           # 默认 mp4
   quality: "low" | "medium" | "high"  # 默认 high
-  merge: bool                    # 默认 false
-  fps: int                       # 默认 10，范围 1–30
-  deidentify: bool               # 默认 true（日志与可选剥离 PHI；像素始终转出）
+  merge: bool                     # 默认 false
+  fps: int                        # 默认 10，1–30
 ```
 
-### 质量映射（实现基准）
+`ConvertParams.deidentify` 仅引擎/模型层默认 true（日志侧）；**HTTP 创建任务接口不暴露该字段**。
+
+### 质量语义
 
 | quality | MP4 | GIF |
 |---------|-----|-----|
-| low | scale=0.5, crf≈28, fps min(fps,8) | max_side=256, max_frames=80, colors=64 |
-| medium | max_side=1024, crf≈23 | max_side=480, max_frames=120, colors=128 |
-| high | 原尺寸（偶数对齐）, crf≈18 | max_side=640, max_frames=150, colors=256 |
+| low | 缩小 + 高压缩 | 边长/帧数紧上限 |
+| medium | 平衡 | 中等上限 |
+| high | 原分辨率优先 | 仍有边长/帧数硬上限 |
 
-实现可用近似参数（imageio quality / Pillow quantize），但**产品档位语义**保持上表。
+GIF 始终有硬上限；会诊优先 MP4。
 
-## 4. 任务状态机
+## 4. 状态
 
-```
-PENDING → EXTRACTING → DISCOVERING → CONVERTING → PACKAGING → SUCCEEDED
-                 ↘ FAILED
-CONVERTING 中可带 meta: { series_index, series_total, frame_index, frame_total, series_name }
-任意阶段异常 → FAILED + error_code + message
-```
+**任务 status（API 顶层）**：`PENDING` | `RUNNING` | `SUCCEEDED` | `FAILED`
 
-### error_code（稳定字符串，供 UI/AI 判断）
+**progress.phase**：`PENDING` | `EXTRACTING` | `DISCOVERING` | `CONVERTING` | `PACKAGING` | `SUCCEEDED` | `FAILED`
+
+### error / 安全相关 code（稳定字符串）
 
 | code | 含义 |
 |------|------|
-| `INVALID_ARCHIVE` | 无法解压或不支持的格式 |
+| `INVALID_ARCHIVE` | 无法解压或不支持 |
 | `ARCHIVE_BOMB` | 超出解压限制 |
-| `NO_DICOM` | 未发现有效图像 DICOM |
+| `NO_DICOM` | 未发现有效图像 |
 | `CONVERT_ERROR` | 编码失败 |
-| `UPLOAD_TOO_LARGE` | 上传超过大小限制 |
+| `UPLOAD_TOO_LARGE` | 上传超限 |
 | `AUTH_REQUIRED` | 需要访问密码 |
-| `RATE_LIMITED` / `UPLOAD_RATE_LIMITED` | 请求/上传过于频繁 |
-| `INTERRUPTED` | 服务重启导致任务中断 |
+| `RATE_LIMITED` / `UPLOAD_RATE_LIMITED` | 限流 |
+| `CAPTCHA_REQUIRED` / `CAPTCHA_FAILED` / `CAPTCHA_MISCONFIGURED` / `CAPTCHA_UNAVAILABLE` | 人机验证 |
+| `INTERRUPTED` | 服务重启中断任务 |
 | `INTERNAL` | 未知错误 |
 
-## 5. HTTP API（v1）
+## 5. HTTP API（`/api/v1`）
 
-Base: `/api/v1`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/bootstrap` | 公开配置：`auth_required`、`captcha_enabled`、`captcha_site_key`、`job_ttl_hours` 等 |
+| POST | `/uploads` | multipart `file`；可选 `cf-turnstile-response` |
+| POST | `/jobs` | JSON：`upload_id` + 转换参数 → 202 `{ job_id, status }` |
+| GET | `/jobs/{id}` | 状态、进度、result、error |
+| GET | `/jobs/{id}/download` | 主交付文件（仅 SUCCEEDED） |
+| GET | `/jobs/{id}/files/{name}` | inline 预览 |
+| GET | `/health` 与根路径 `/health` | 探活，无鉴权 |
 
-### 5.0 上传（与转换分离）
-
-`POST /uploads`
-
-- `Content-Type: multipart/form-data`
-- 字段：`file`（压缩包）
-
-响应 `201`:
-
-```json
-{
-  "upload_id": "uuid",
-  "filename": "C252708.rar",
-  "size_bytes": 318750568
-}
-```
-
-同一 `upload_id` 可多次发起转换，无需重新上传。
-
-### 5.1 开始转换
-
-`POST /jobs`
-
-- `Content-Type: application/json`
-
-```json
-{
-  "upload_id": "uuid",
-  "format": "mp4",
-  "quality": "high",
-  "merge": false,
-  "fps": 10
-}
-```
-
-响应 `202`:
-
-```json
-{
-  "job_id": "uuid",
-  "status": "PENDING"
-}
-```
-
-### 5.2 查询任务
-
-`GET /jobs/{job_id}`
-
-```json
-{
-  "job_id": "uuid",
-  "status": "CONVERTING",
-  "progress": {
-    "phase": "CONVERTING",
-    "percent": 42,
-    "message": "序列 2/5: Bone 1.25mm",
-    "series_index": 2,
-    "series_total": 5
-  },
-  "result": null,
-  "error": null,
-  "created_at": "...",
-  "updated_at": "..."
-}
-```
-
-成功时 `result`:
-
-```json
-{
-  "download_name": "merged.mp4",
-  "content_type": "video/mp4",
-  "size_bytes": 12345678,
-  "outputs": [
-    {"name": "merged.mp4", "kind": "merged"}
-  ]
-}
-```
-
-### 5.3 下载主文件
-
-`GET /jobs/{job_id}/download`  
-仅 `SUCCEEDED`；返回主交付文件（合并文件 / 单序列 / zip）。
-
-### 5.4 预览单文件
-
-`GET /jobs/{job_id}/files/{filename}`  
-`Content-Disposition: inline`，供页面 video/img 预览。
-
-### 5.5 健康检查
-
-`GET /health` → `{ "status": "ok" }`
-
-## 6. CLI（并行入口）
+## 6. CLI
 
 ```bash
-# 目录输入（兼容旧习惯）
-dicomflow convert -i ./dicom_dir -o ./out --format mp4 --quality high
-
-# 压缩包输入
+dicomflow convert -i ./study.zip -o ./out --format mp4 --quality high
 dicomflow convert -i ./study.zip -o ./out --format gif --merge
-
-# 启动本地 Web
 dicomflow serve --host 127.0.0.1 --port 8765
 ```
 
 ## 7. 输出命名
 
-- 单序列：`{SeriesNumber:03d}_{safe(SeriesDescription)}.{ext}`
-- 多序列未合并：同上 + `result.zip`
+- 序列：`{SeriesNumber:03d}_{safe(SeriesDescription)}.{ext}`（避免仅按描述命名导致覆盖）  
+- 多序列未合并：另有 `result.zip`  
 - 合并：`merged.{ext}`
-- `safe()`：非字母数字改为 `_`，截断长度，避免空名时用 UID 前 12 位
 
-## 8. 解压限制（默认，可配置）
+## 8. 限制默认（`Settings`，可环境变量覆盖）
 
 | 项 | 默认 |
 |----|------|
-| 上传包最大 | 2 GiB |
-| 解压后总大小 | 8 GiB |
-| 单文件最大 | 512 MiB |
-| 文件数量 | 200_000 |
-| 压缩比（zip bomb） | 解压/压缩 > 100 且解压>1GiB 拒绝 |
+| 上传最大 | 1 GiB |
+| 解压后总大小 | 4 GiB |
+| 解压文件数 | 100_000 |
+| 压缩比 | 100 |
+| 任务 TTL | 24 h |
 
-## 9. 验收清单
+## 9. 验收要点
 
-- [ ] zip 内多序列 CT → 多个 mp4 或一个 zip
-- [ ] `--merge` → 单个 mp4，段落可辨
-- [ ] gif + high 体积可控（有上限）
-- [ ] 无扩展名 DICOM 可发现
-- [ ] 损坏包 → `INVALID_ARCHIVE`，Web 有可读错误
-- [ ] 仅监听 127.0.0.1
-- [ ] `dicomflow convert` 不启动 HTTP 也能用
+- 多序列 zip/rar → 多 mp4 或 zip；`--merge` → 单文件  
+- 同名 SeriesDescription 不互相覆盖  
+- GIF high 体积可控  
+- 无扩展名 DICOM 可发现  
+- 损坏包 / 鉴权 / captcha 有可读错误  
+- 默认监听 127.0.0.1；CLI convert 可不启 HTTP  

@@ -53,6 +53,20 @@
     return h;
   }
 
+  /** Server-side check: password is only accepted if middleware returns 200. */
+  async function verifyAccessToken(token) {
+    const t = (token || "").trim();
+    if (!t) return false;
+    try {
+      const res = await fetch("/api/v1/auth/check", {
+        headers: { "X-DicomFlow-Token": t },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   function showAuthOverlay(message) {
     const overlay = $("auth-overlay");
     const err = $("auth-error");
@@ -69,12 +83,19 @@
     }
     const input = $("auth-token-input");
     if (input) {
-      input.value = getToken();
+      // Do not prefill a previously rejected/wrong token
+      if (!message) input.value = "";
       setTimeout(() => input.focus(), 50);
     }
     return new Promise((resolve) => {
       const submit = $("auth-submit");
-      const onSubmit = () => {
+      let busy = false;
+      const cleanup = () => {
+        submit?.removeEventListener("click", onSubmit);
+        input?.removeEventListener("keydown", onKey);
+      };
+      const onSubmit = async () => {
+        if (busy) return;
         const v = (input && input.value ? input.value : "").trim();
         if (!v) {
           if (err) {
@@ -83,10 +104,34 @@
           }
           return;
         }
+        busy = true;
+        if (submit) submit.disabled = true;
+        if (err) {
+          err.hidden = false;
+          err.textContent = "正在验证…";
+        }
+        const ok = await verifyAccessToken(v);
+        busy = false;
+        if (submit) submit.disabled = false;
+        if (!ok) {
+          setToken("");
+          if (err) {
+            err.hidden = false;
+            err.textContent = "密码不正确，请重新输入";
+          }
+          if (input) {
+            input.select();
+            input.focus();
+          }
+          return;
+        }
         setToken(v);
         overlay.hidden = true;
-        submit?.removeEventListener("click", onSubmit);
-        input?.removeEventListener("keydown", onKey);
+        if (err) {
+          err.hidden = true;
+          err.textContent = "";
+        }
+        cleanup();
         resolve(v);
       };
       const onKey = (e) => {
@@ -174,12 +219,11 @@
     }
 
     if (fileInput) {
-      // Block native file picker when locked (also covers label/programmatic click)
+      // Must stay enabled when unlocked — disabled inputs ignore .click()
       fileInput.disabled = locked;
     }
 
     if (clearFileBtn) {
-      // Allow clearing current selection even if captcha expired; re-pick is gated
       clearFileBtn.disabled = false;
     }
 
@@ -192,9 +236,12 @@
       if (uploadMsg && !state.uploading && !state.uploadId) {
         uploadMsg.textContent = "请先完成人机验证，再选择文件";
       }
-    } else if (captchaState.enabled) {
+    } else {
+      // Captcha off, or captcha passed — restore normal upload copy
       if (dropLabel && !state.file) {
-        dropLabel.textContent = "② 拖拽文件到这里，或点击选择";
+        dropLabel.textContent = captchaState.enabled
+          ? "② 拖拽文件到这里，或点击选择"
+          : "拖拽文件到这里，或点击选择";
       }
       if (dropHint && !state.file) {
         dropHint.textContent = "支持较大的检查压缩包";
@@ -203,7 +250,9 @@
         setUploadBadge("idle", "待上传");
       }
       if (uploadMsg && !state.uploading && !state.uploadId && !state.file) {
-        uploadMsg.textContent = "验证已通过，请选择要转换的文件";
+        uploadMsg.textContent = captchaState.enabled
+          ? "验证已通过，请选择要转换的文件"
+          : "请先选择要转换的文件";
       }
     }
   }
@@ -316,16 +365,36 @@
       const res = await fetch("/api/v1/bootstrap");
       if (!res.ok) return;
       const data = await res.json();
-      if (data.auth_required && !getToken()) {
-        await showAuthOverlay();
+      if (data.auth_required) {
+        const existing = getToken();
+        if (existing) {
+          const ok = await verifyAccessToken(existing);
+          if (!ok) {
+            setToken("");
+            await showAuthOverlay("密码不正确或已失效，请重新输入");
+          }
+        } else {
+          await showAuthOverlay();
+        }
+      } else {
+        // Auth disabled: drop any leftover session token
+        setToken("");
       }
       if (data.captcha_enabled && data.captcha_site_key) {
         await initCaptcha(data.captcha_site_key);
       } else {
         captchaState.enabled = false;
+        captchaState.token = "";
+        captchaState.widgetId = null;
+        const wrap = $("captcha-wrap");
+        if (wrap) wrap.hidden = true;
         updateUploadGate();
       }
-    } catch (_) {}
+    } catch (_) {
+      // Network failure: do not leave upload permanently locked
+      captchaState.enabled = false;
+      updateUploadGate();
+    }
   }
 
   async function apiFetch(url, options) {
@@ -797,12 +866,21 @@
       updateUploadGate();
       return;
     }
+    if (!fileInput || fileInput.disabled) {
+      updateUploadGate();
+      if (fileInput) fileInput.disabled = false;
+    }
+    // Nested <input type=file> click can bubble back to dropzone; stop that
     fileInput.click();
   }
 
+  // Prevent re-entrancy: programmatic fileInput.click() must not re-trigger dropzone
+  fileInput?.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
   dropzone.addEventListener("click", (e) => {
-    // Ignore clicks originating from nested controls if any
-    e.preventDefault();
+    if (e.target === fileInput || fileInput?.contains?.(e.target)) return;
     openFilePicker();
   });
   dropzone.addEventListener("keydown", (e) => {

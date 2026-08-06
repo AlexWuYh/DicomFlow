@@ -28,3 +28,17 @@ def bootstrap(settings: Settings = Depends(get_app_settings)):
         "max_upload_bytes": settings.max_upload_bytes,
         "job_ttl_hours": settings.job_ttl_hours,
     }
+
+
+@router.get("/api/v1/auth/check")
+def auth_check(settings: Settings = Depends(get_app_settings)):
+    """
+    Verify access token for the SPA gate.
+
+    Protected by SecurityMiddleware when ACCESS_TOKEN is set (not in public paths).
+    Returns 200 only after middleware accepts the token.
+    """
+    return {
+        "ok": True,
+        "auth_required": bool(settings.access_token),
+    }

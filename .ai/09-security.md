@@ -54,7 +54,9 @@ export TURNSTILE_SECRET="..."                       # 仅服务端（canonical �
 ## 前端鉴权与 captcha
 
 - `/api/v1/bootstrap`：`auth_required`、`captcha_*`、`job_ttl_hours`
-- 访问密码：`sessionStorage` + 请求头 `X-DicomFlow-Token`
+- 访问密码：弹窗提交后必须 `GET /api/v1/auth/check` 返回 200 才写入 `sessionStorage` 并进入主页；错误密码不得放行
+- 已有 session 令牌：启动时同样调用 `auth/check` 校验，失败则清空并重新弹窗
+- 请求头：`X-DicomFlow-Token`
 - 预览/下载：fetch + blob（媒体标签不能自定义头）
 
 ## 健康检查

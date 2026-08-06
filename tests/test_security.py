@@ -40,6 +40,22 @@ def test_access_token_protects_api(tmp_path, monkeypatch):
     assert b.json()["auth_required"] is True
     assert b.json()["captcha_enabled"] is False
 
+    # SPA gate: wrong password rejected, correct accepted
+    assert client.get("/api/v1/auth/check").status_code == 401
+    assert (
+        client.get(
+            "/api/v1/auth/check",
+            headers={"X-DicomFlow-Token": "wrong-password"},
+        ).status_code
+        == 401
+    )
+    ok = client.get(
+        "/api/v1/auth/check",
+        headers={"X-DicomFlow-Token": "secret-token-xyz"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["ok"] is True
+
     # jobs without token
     r = client.post("/api/v1/jobs", json={"upload_id": "abc", "format": "mp4"})
     assert r.status_code == 401
@@ -53,6 +69,18 @@ def test_access_token_protects_api(tmp_path, monkeypatch):
     )
     assert r2.status_code != 401
 
+    _clear_caches()
+
+
+def test_auth_check_open_when_no_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("DICOMFLOW_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("DICOMFLOW_ACCESS_TOKEN", "")
+    monkeypatch.setenv("DICOMFLOW_CAPTCHA_ENABLED", "false")
+    _clear_caches()
+    client = TestClient(create_app())
+    r = client.get("/api/v1/auth/check")
+    assert r.status_code == 200
+    assert r.json()["auth_required"] is False
     _clear_caches()
 
 

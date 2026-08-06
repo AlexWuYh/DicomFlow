@@ -45,21 +45,17 @@ export TURNSTILE_SECRET="..."                       # 仅服务端（canonical �
 ```
 
 - 密钥在 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) 创建
-- Secret 读取顺序：`DICOMFLOW_TURNSTILE_SECRET_KEY` → 进程环境 `TURNSTILE_SECRET` → `.env` 中 `TURNSTILE_SECRET`
-- 仅当 `CAPTCHA_ENABLED=true` **且** site/secret 都非空时，bootstrap 才返回 `captcha_enabled: true`
-- 若开关为 true 但缺密钥：上传失败（503 `CAPTCHA_MISCONFIGURED`），避免静默裸奔
-- 服务端 `POST https://challenges.cloudflare.com/turnstile/v0/siteverify`，body：`secret` + `response` + `remoteip`；要求 `success === true`
-- 前端 widget 使用 `data-action="turnstile-spin-v2"`
-- CSP 已允许 `challenges.cloudflare.com` 的 script / frame / connect / worker
-- **本地预览**：Turnstile 控制台 Hostname Management 必须包含 `localhost` 与 `127.0.0.1`（不要带端口号）。否则小部件会显示「无法连接到网站」（错误码 110200）
+- Secret：优先进程环境或 `.env` 中的 `TURNSTILE_SECRET`（亦接受 `DICOMFLOW_TURNSTILE_SECRET_KEY`）
+- bootstrap：`captcha_enabled` 仅在开关开启且 **site key 可用** 时为 true（缺 secret 时上传仍 fail-closed）
+- siteverify：`POST …/turnstile/v0/siteverify`，`success === true`
+- 前端：`data-action="turnstile-spin-v2"`；通过后才解锁选文件；FormData 带 `cf-turnstile-response`
+- 本地域名：Hostname Management 需含 `localhost` 与 `127.0.0.1`（无端口）
 
-## 前端令牌
+## 前端鉴权与 captcha
 
-- 启动时请求 `/api/v1/bootstrap` → `auth_required`、`captcha_enabled`、`captcha_site_key`
-- 需要时弹窗输入访问密码，存入 `sessionStorage`（关标签即清）
-- 所有 API 请求带 `X-DicomFlow-Token`
-- captcha 开启时渲染 Turnstile 小部件，上传 FormData 附带 `cf-turnstile-response`
-- 预览/下载通过 fetch+blob（媒体标签无法自定义头）
+- `/api/v1/bootstrap`：`auth_required`、`captcha_*`、`job_ttl_hours`
+- 访问密码：`sessionStorage` + 请求头 `X-DicomFlow-Token`
+- 预览/下载：fetch + blob（媒体标签不能自定义头）
 
 ## 健康检查
 

@@ -1,6 +1,6 @@
 # 转换引擎契约
 
-## 1. 公共入口
+## 1. 入口
 
 ```python
 def convert_dicom_package(
@@ -12,80 +12,35 @@ def convert_dicom_package(
     merge: bool = False,
     fps: int = 10,
     progress_callback: Callable[[ProgressEvent], None] | None = None,
-) -> ConvertResult:
-    ...
+) -> ConvertResult: ...
 ```
 
-`ConvertResult`:
+`ConvertResult`：最终交付路径列表、各序列产物、序列元数据。
 
-```text
-output_files: list[Path]   # 最终交付文件（单个媒体或 zip）
-series_outputs: list[Path] # 各序列原始产物（合并前）
-series_meta: list[SeriesInfo]
-```
+## 2. 流水线
 
-## 2. 流水线步骤
+1. **normalize_input** — 安全解压归档或使用目录  
+2. **discover_dicoms** — rglob；`.dcm` 大小写；无后缀 `dcmread(force=True)`；需可读 `pixel_array`  
+3. **group_series** — key = `SeriesInstanceUID`  
+4. **sort_instances** — InstanceNumber → IPP Z → 文件名  
+5. **render_frames**（流式）— rescale、窗位（tag → 文件名 `W{ww}L{wc}` → min-max）、MONOCHROME1、灰度→RGB、偶数边 pad、按 quality 缩放  
+6. **encode** — mp4: libx264 yuv420p；gif: 调色板 + 帧/边长上限  
+7. **merge or package** — merge：ffmpeg concat（序列间短黑场）；否则多序列 zip  
 
-1. **normalize_input**  
-   - 若是归档：安全解压到 workdir  
-   - 若是目录：直接使用
-2. **discover_dicoms**  
-   - rglob 文件  
-   - 后缀 `.dcm`（任意大小写）或无后缀时 `dcmread(force=True)` 探测  
-   - 必须有可读取的 `pixel_array`
-3. **group_series**  
-   - key = `SeriesInstanceUID`  
-   - 附加 Study/Series 元数据用于排序与命名
-4. **sort_instances**  
-   - InstanceNumber → IPP Z → 文件名
-5. **render_frames**（流式）  
-   - rescale（Slope/Intercept，若有）  
-   - window（tag → 文件名 W/L → min-max）  
-   - MONOCHROME1 反色  
-   - 灰度→RGB  
-   - 偶数宽高 pad（H.264）  
-   - 按 quality 缩放
-6. **encode**  
-   - mp4: libx264 yuv420p  
-   - gif: 调色板 + 抽帧上限
-7. **merge or package**  
-   - merge=true: ffmpeg concat（序列间黑场 0.5s）  
-   - merge=false && len>1: zip  
-   - 单文件：直接作为 download
+## 3. 命名与分组（重要）
 
-## 3. 从旧脚本继承的行为
-
-| 行为 | 来源 | 处理 |
-|------|------|------|
-| 文件名窗位 `W2000L600` | 早期实现 | 保留 |
-| 偶数维度 pad | 同上 | 保留 |
-| `force=True` 读取 | 同上 | 保留 |
-| 全帧列表内存 | 同上 | **改为流式** writer.append |
-| 仅 `.DCM` 后缀 | 同上 | **扩展**无后缀探测 |
-| 自动 pip install | 同上 | **删除**（依赖 pyproject） |
+- 分组必须用 **SeriesInstanceUID**，不能只用 SeriesDescription。  
+- 输出文件名带 **SeriesNumber 前缀**，避免同描述序列互相覆盖。
 
 ## 4. ProgressEvent
 
 ```text
-phase: EXTRACTING | DISCOVERING | CONVERTING | PACKAGING
+phase: EXTRACTING | DISCOVERING | CONVERTING | PACKAGING | ...
 percent: 0-100
-message: str
-series_index: int | None
-series_total: int | None
-frame_index: int | None
-frame_total: int | None
+message, series_index/total, frame_index/total
 ```
 
-## 5. 测试夹具建议
+## 5. 测试与性能（参考）
 
-- 最小 3 帧假 DICOM 序列（生成器脚本）
-- 两序列用于 merge/zip 分支
-- 恶意 zip（`../` 路径）应被拒绝
-
-## 6. 性能预算（个人本机参考）
-
-| 规模 | 期望 |
-|------|------|
-| 1 序列 × 100 帧 512² | < 30s |
-| 5 序列 × 200 帧 | < 5 min |
-| 内存 | 单 Worker 峰值尽量 < 2–4 GB（流式） |
+- 夹具：合成多帧序列、双序列 merge/zip、恶意 zip 路径  
+- 预算（本机参考）：100 帧 512² 约 &lt;30s；流式避免整序列帧常驻内存  

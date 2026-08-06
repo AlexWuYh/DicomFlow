@@ -79,8 +79,9 @@ chore/*   ──┘
 5. `main` 上有提交后，Release 流水线（`.github/workflows/release.yml`）会：
    - 跑测试
    - 构建 sdist + wheel，上传 workflow artifacts
+   - 构建 Docker 镜像并推送到 **GHCR**：`ghcr.io/<owner>/<repo>:{version,latest,sha}`（小写）
    - 若标签 `v{version}` **尚不存在**，则创建 GitHub Release 并附带安装包
-   - 若标签已存在（未升版本号），仍打包 artifacts，**不**重复建 Release
+   - 若标签已存在（未升版本号），仍打包 artifacts 与镜像，**不**重复建 Release
 
 ## 版本号
 
@@ -103,7 +104,7 @@ chore/*   ──┘
 | 文件 | 触发 | 作用 |
 |------|------|------|
 | `.github/workflows/ci.yml` | `dev` push；PR → `dev`/`main` | pytest（Python 3.11 / 3.12） |
-| `.github/workflows/release.yml` | `main` push | 测试 + 构建包 + 条件创建 Release |
+| `.github/workflows/release.yml` | `main` push | 测试 + 构建包 + Docker→GHCR + 条件创建 Release |
 
 ## 本地验证（实现后）
 

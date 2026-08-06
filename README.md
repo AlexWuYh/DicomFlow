@@ -18,10 +18,45 @@ If the site asks for an access password, request it from the operator (end users
 
 ## Quick start (Docker)
 
+### Build locally
+
 ```bash
 docker compose up -d --build
 open http://127.0.0.1:8765
 ```
+
+### Use the published image (GHCR)
+
+Images are published to GitHub Container Registry on every push to `main`:
+
+| Tag | Image |
+|-----|--------|
+| Version | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
+| Latest | `ghcr.io/alexwuyh/dicomflow:latest` |
+| Package page | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
+
+```bash
+# Pull
+docker pull ghcr.io/alexwuyh/dicomflow:latest
+
+# Run (data persisted in a named volume)
+docker run -d --name dicomflow \
+  -p 8765:8765 \
+  -v dicomflow-data:/data \
+  -e DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)" \
+  ghcr.io/alexwuyh/dicomflow:latest
+
+# Or with Compose (override the image instead of building)
+# image: ghcr.io/alexwuyh/dicomflow:latest
+```
+
+If the package is private, authenticate first:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+Public repos can set the package visibility to **Public** under GitHub → Packages → `dicomflow` → Package settings.
 
 Before public exposure, set an access password (token):
 

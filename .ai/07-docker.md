@@ -6,8 +6,10 @@
 
 | 项 | 说明 |
 |----|------|
-| 启动 | 默认拉 GHCR：`docker compose pull && docker compose up -d`；本地构建：`docker compose up -d --build` |
-| **GHCR** | compose 默认 `ghcr.io/alexwuyh/dicomflow:latest`；可用 `DICOMFLOW_IMAGE` 覆盖；`main` 推送由 Release 流水线 push |
+| 启动 | **默认只拉镜像、不 build**：`docker compose pull && docker compose up -d`（无需 Dockerfile） |
+| 本地构建 | 完整仓库下：`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build` |
+| 开发挂载 | `docker-compose.dev.yml`（`./web`、`./input`） |
+| **GHCR** | 默认 `ghcr.io/alexwuyh/dicomflow:latest`；`DICOMFLOW_IMAGE` 可覆盖；拉不动时是网络问题，不是缺 Dockerfile |
 | 数据卷 | `dicomflow-data` → `/data`（含 db / uploads / outputs） |
 | 可选挂载 | `./input` → `/input:ro` 便于容器内 CLI 测压缩包 |
 | 并发 | `DICOMFLOW_WORKERS=1` 默认，大 CT 勿盲目加并发 |

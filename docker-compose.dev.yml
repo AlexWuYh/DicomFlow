@@ -1,0 +1,9 @@
+# Optional overlay for local development against a full repo checkout.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  dicomflow:
+    volumes:
+      - dicomflow-data:/data
+      - ./input:/input:ro
+      # Hot-reload frontend without rebuild (requires ./web on the host)
+      - ./web:/app/web:ro

@@ -18,10 +18,44 @@
 
 ## 快速开始（Docker）
 
+### 本地构建
+
 ```bash
 docker compose up -d --build
 open http://127.0.0.1:8765
 ```
+
+### 使用已发布镜像（GHCR）
+
+每次推送到 `main` 会自动构建并推送到 GitHub Container Registry：
+
+| 标签 | 镜像 |
+|------|------|
+| 版本号 | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
+| 最新 | `ghcr.io/alexwuyh/dicomflow:latest` |
+| 包页面 | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
+
+```bash
+# 拉取
+docker pull ghcr.io/alexwuyh/dicomflow:latest
+
+# 运行（数据落在命名卷）
+docker run -d --name dicomflow \
+  -p 8765:8765 \
+  -v dicomflow-data:/data \
+  -e DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)" \
+  ghcr.io/alexwuyh/dicomflow:latest
+
+# 或用 Compose：将 image 设为 ghcr.io/alexwuyh/dicomflow:latest（无需本地 build）
+```
+
+若包为私有，先登录：
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+公开仓库可在 GitHub → Packages → `dicomflow` → Package settings 将可见性设为 **Public**。
 
 公网部署前请设置访问密码（令牌）：
 

@@ -1,7 +1,11 @@
 services:
   dicomflow:
+    # Local default: build from Dockerfile.
+    # To use GHCR instead of building:
+    #   image: ghcr.io/alexwuyh/dicomflow:latest
+    #   # and comment out "build: ."
     build: .
-    image: dicomflow:local
+    image: ${DICOMFLOW_IMAGE:-dicomflow:local}
     container_name: dicomflow
     ports:
       - "8765:8765"

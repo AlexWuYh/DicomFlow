@@ -57,6 +57,16 @@ pytest -q
 
 macOS 解压 rar 可安装：`brew install unar`
 
+## 分支与发布
+
+| 分支 | 职责 |
+|------|------|
+| **`main`** | 发布主分支。每次推送触发 **Release** 流水线（测试 + sdist/wheel；若 `v{version}` 为新标签则创建 GitHub Release）。 |
+| **`dev`** | 开发集成主分支。功能 PR 请合并到 **`dev`**。 |
+
+流程：`feature/*` → `dev` →（发布）→ `main`。  
+详见：[CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)。
+
 ## 仓库结构
 
 ```
@@ -64,6 +74,7 @@ macOS 解压 rar 可安装：`brew install unar`
 src/dicomflow/    # API、引擎、任务、存储
 web/              # 前端静态页
 tests/
+.github/workflows # CI（dev）+ Release（main）
 Dockerfile
 docker-compose.yml
 ```

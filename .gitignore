@@ -41,3 +41,18 @@ outputs/
 
 # Draft / brainstorm (local only)
 设计方案
+
+# AI agent docs (local only — not published to GitHub)
+.ai/
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.agents/
+.cursor/
+.cursorrules
+.aider*
+GEMINI.md
+.grok/
+# UI design kit for agents (optional local)
+design-system/

@@ -39,14 +39,59 @@
 - **理由**：最大复用现有 `web/` + API + 引擎；完全离线；打包路径清晰（PyInstaller 等）。
 - **后果**：需捆绑 Python 运行时与 ffmpeg/unrar；窗口关闭时结束本地服务。
 
-### ADR-B：Android 分两阶段
+### ADR-B：Android 技术选型（已推荐）
+
+> 结论见下表「推荐路径」。详细对比供评审；实现以推荐路径为准，除非 spike 证伪。
+
+#### 约束回顾
+
+- 完全离线；APK 内自带能力  
+- 能力：zip（必选）/ rar（可二期）→ 按序列出 MP4/GIF → 本机预览与分享  
+- 现有核心在 **Python**（pydicom / numpy / imageio-ffmpeg）  
+- 团队优先级：先 Windows 可交付，Android 要可持续而非「能跑 demo」
+
+#### 方案对比
+
+| 方案 | 离线 | 复用 Python 引擎 | 包体/性能 | 可维护性 | 商店/体验 | 结论 |
+|------|------|------------------|-----------|----------|-----------|------|
+| **A. Kotlin + Compose + FFmpeg-Kit + Zip** | 优 | 差（逻辑对照移植） | 可控 | **优** | **优** | **主选** |
+| **B. Chaquopy 嵌 CPython** | 中 | **优** | APK 巨大、ARM 依赖难 | 差 | 中 | **仅 2 周 spike 探路** |
+| **C. BeeWare / Briefcase** | 中 | 中 | 未验证科学栈 | 中 | 中 | 不选 |
+| **D. Flutter + 自写/FFI 引擎** | 优 | 差 | 可控 | 中（双栈 UI） | 优 | 备选 UI，引擎仍要自建 |
+| **E. WebView + 本机 Python 服务** | 差 | 优 | 难上架 | 差 | 差 | 不做 |
+
+#### 推荐路径（主选 A）
+
+**UI：Kotlin + Jetpack Compose**  
+**转换：进程内 / 协程调用本地流水线**  
+- **解压**：Java Zip；RAR 二期（junrar 或仅文档提示「请用 zip」）  
+- **DICOM**：优先 **Java 生态（如 dcm4che 裁剪）** 做发现/排序/像素；窗位逻辑对照 `engine/window.py` 移植  
+- **编码**：**FFmpeg-Kit**（或 MediaCodec 仅 H.264 简化路径）出 MP4；GIF 可用 Android 库或降级为「仅 MP4」  
+- **语义对齐**：参数与进度对齐 `ConvertParams` / `ProgressEvent`（见 `03-mvp-spec`），便于双端体验一致  
+
+**不作为长期方案**：整包塞入 CPython + pydicom + numpy + imageio（B）。移动端体积、后台杀死、存储权限与 ffmpeg 捆绑成本通常不可接受。
+
+#### 可选 spike（证伪用，非主线）
+
+用 **Chaquopy** 做 ≤2 周 spike：单序列 100 帧 512² 转换 + 测 APK 体积与中端机耗时。  
+**否决线（任一触发则放弃 B）**：
+
+- 安装包（含引擎依赖）&gt; ~150–200 MB 且无法明显裁剪  
+- 中端机转换时间相对桌面 Python 差一个数量级以上且无法优化  
+- 无法稳定捆绑可用 ffmpeg/解压  
+
+Spike 通过也只作「内部工具 APK」，**商店向产品仍以 A 为准**。
+
+#### 分阶段
 
 | 阶段 | 内容 |
 |------|------|
-| **A1** | 工程骨架 + 离线产品说明 + 与引擎集成的接口约定 |
-| **A2** | 可安装包：优先评估 **Chaquopy / BeeWare / 自研 Kotlin 调本地二进制**；或精简引擎 native 化 |
+| **A1** | 骨架 + 接口约定（已有 `apps/offline/android/`） |
+| **A2** | Compose 工程：选 zip → 解压 → 列序列 → 调本地转换 stub |
+| **A3** | 接上 DICOM 发现 + FFmpeg 出 MP4；断网验收 |
+| **A4** | RAR / GIF / 合并 / 分享面板等增强 |
 
-Android 无法简单复用「本机 uvicorn + 系统浏览器」同一套分发，故 **Windows 先可交付，Android 并行推进骨架与集成方案**，避免阻塞 Windows。
+Windows 仍走 pywebview 壳（ADR-A），与 Android **共享产品语义、不共享运行时**。
 
 ### ADR-C：App 模式配置硬开关
 

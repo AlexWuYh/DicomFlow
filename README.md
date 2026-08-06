@@ -57,16 +57,6 @@ pytest -q
 
 On macOS, RAR extraction: `brew install unar`
 
-## Branches & releases
-
-| Branch | Role |
-|--------|------|
-| **`main`** | Release line. Every push runs the **Release** workflow (tests + sdist/wheel; creates a GitHub Release when `v{version}` is new). |
-| **`dev`** | Development integration. Open feature PRs **into `dev`**. |
-
-Flow: `feature/*` → `dev` → (release) → `main`.  
-Details: [CONTRIBUTING.md](./CONTRIBUTING.md).
-
 ## Repository layout
 
 ```
@@ -74,7 +64,6 @@ Details: [CONTRIBUTING.md](./CONTRIBUTING.md).
 src/dicomflow/    # API, engine, tasks, storage
 web/              # static frontend
 tests/
-.github/workflows # CI (dev) + Release (main)
 Dockerfile
 docker-compose.yml
 ```

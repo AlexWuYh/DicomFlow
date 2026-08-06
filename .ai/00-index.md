@@ -14,6 +14,7 @@
 | [08-series-count.md](./08-series-count.md) | 新旧脚本序列数量差异说明 |
 | [09-security.md](./09-security.md) | 公网安全默认项与部署清单 |
 | [10-review-report.md](./10-review-report.md) | 全量 Review 报告（代码/文档/安全/运维） |
+| [11-development.md](./11-development.md) | 开发规范：分支（main/dev）、PR 目标、Release 流水线（供 AI 阅读） |
 
 ## 一句话产品定义
 

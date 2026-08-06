@@ -1,36 +1,46 @@
 # DicomFlow
 
-把医院导出的 DICOM 压缩包（zip / rar）转成 **MP4 / GIF**，用手机或电脑自带播放器就能看，方便跨院会诊传阅。
+**English** | [简体中文](./README.zh-CN.md)
 
-> 设计与规格文档：[`.ai/00-index.md`](.ai/00-index.md)
+Convert hospital DICOM archives (**zip / rar**) into **MP4 / GIF** that any phone or desktop player can open — handy for cross-hospital review and sharing.
 
-## 用户怎么用（网站）
+> Design & specs: [`.ai/00-index.md`](.ai/00-index.md)
 
-1. 打开站点（本地默认 http://127.0.0.1:8765 ）
-2. 上传医院给的压缩包
-3. 选择格式（MP4/GIF）、清晰度，可选「合并成一个文件」
-4. 开始转换 → 预览 → 下载  
-5. **结果默认只保留 24 小时**，请及时保存
+## How to use (web)
 
-若站点要求访问密码，向部署方索取即可（与安装配置无关的使用方式）。
+1. Open the site (local default: http://127.0.0.1:8765 )
+2. Upload the archive from the hospital
+3. Choose format (MP4/GIF), quality, and optionally **merge into one file**
+4. Convert → preview → download
+5. **Results are kept for 24 hours by default** — save them promptly
 
-## 快速开始（Docker）
+If the site asks for an access password, request it from the operator (end users do not need the server config).
+
+## Quick start (Docker)
 
 ```bash
 docker compose up -d --build
 open http://127.0.0.1:8765
 ```
 
-公网部署前请设置访问密码（令牌）：
+Before public exposure, set an access password (token):
 
 ```bash
 export DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)"
 docker compose up -d --build
 ```
 
-更多安全项见 [`.ai/09-security.md`](.ai/09-security.md)。
+Optional human verification (Cloudflare Turnstile), independent of the access password:
 
-## 本地开发
+```bash
+export DICOMFLOW_CAPTCHA_ENABLED=true
+export DICOMFLOW_TURNSTILE_SITE_KEY="your-site-key"
+export TURNSTILE_SECRET="your-secret"   # never commit this
+```
+
+More security notes: [`.ai/09-security.md`](.ai/09-security.md).
+
+## Local development
 
 ```bash
 python3 -m venv .venv
@@ -41,45 +51,47 @@ pip install -e ".[dev]"
 dicomflow convert -i ./study.zip -o ./out --format mp4 --quality high
 dicomflow serve   # http://127.0.0.1:8765
 
-# 测试
+# Tests
 pytest -q
 ```
 
-macOS 解压 rar 可安装：`brew install unar`
+On macOS, RAR extraction: `brew install unar`
 
-## 仓库结构
+## Repository layout
 
 ```
-.ai/              # 产品 / 架构 / 安全规格
-src/dicomflow/    # API、引擎、任务、存储
-web/              # 前端静态页
+.ai/              # product / architecture / security specs
+src/dicomflow/    # API, engine, tasks, storage
+web/              # static frontend
 tests/
 Dockerfile
 docker-compose.yml
 ```
 
-运行时数据（gitignore）：`data/`（含 `dicomflow.db`、uploads、outputs）
+Runtime data (gitignored): `data/` (`dicomflow.db`, uploads, outputs)
 
-## 配置（常用）
+## Configuration (common)
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `DICOMFLOW_DATA_DIR` | `./data` | 数据根目录 |
-| `DICOMFLOW_HOST` / `PORT` | `127.0.0.1` / `8765` | 监听 |
-| `DICOMFLOW_ACCESS_TOKEN` | 空 | 公网建议必设（访问密码，可开关） |
-| `DICOMFLOW_CAPTCHA_ENABLED` | `false` | 人机验证开关（Cloudflare Turnstile） |
-| `DICOMFLOW_TURNSTILE_SITE_KEY` | 空 | 开启 captcha 时必填（公开 site key） |
-| `TURNSTILE_SECRET` | 空 | 开启 captcha 时必填（服务端 secret，勿提交） |
-| `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI 文档开关 |
-| `DICOMFLOW_MAX_UPLOAD_BYTES` | 1GiB | 上传上限 |
-| `DICOMFLOW_JOB_TTL_HOURS` | `24` | 自动清理 |
-| `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | 仅可信反代后开启 |
-| `DICOMFLOW_ALLOWED_HOSTS` | `*` | 生产改为域名 |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DICOMFLOW_DATA_DIR` | `./data` | Data root |
+| `DICOMFLOW_HOST` / `PORT` | `127.0.0.1` / `8765` | Listen address |
+| `DICOMFLOW_ACCESS_TOKEN` | empty | Recommended on public internet (toggle: set / clear) |
+| `DICOMFLOW_CAPTCHA_ENABLED` | `false` | Human verification (Cloudflare Turnstile) |
+| `DICOMFLOW_TURNSTILE_SITE_KEY` | empty | Required when captcha is on (public site key) |
+| `TURNSTILE_SECRET` | empty | Required when captcha is on (server secret; do not commit) |
+| `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI docs |
+| `DICOMFLOW_MAX_UPLOAD_BYTES` | 1 GiB | Upload size limit |
+| `DICOMFLOW_JOB_TTL_HOURS` | `24` | Auto-cleanup TTL |
+| `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | Enable only behind a trusted reverse proxy |
+| `DICOMFLOW_ALLOWED_HOSTS` | `*` | Set to your domain in production |
 
-完整示例：`.env.example`
+Full example: [`.env.example`](./.env.example)
 
-## 许可
+For local Turnstile testing, add `localhost` and `127.0.0.1` (no port) under Hostname Management in the Cloudflare dashboard.
 
-[MIT License](./LICENSE)。  
+## License
 
-非医疗器械，不替代专业阅片工作站，不作诊断依据。
+[MIT License](./LICENSE).
+
+Not a medical device. Does not replace a clinical PACS/viewer. Not for diagnosis.

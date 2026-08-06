@@ -106,10 +106,11 @@ Windows 仍走 pywebview 壳（ADR-A），与 Android **共享产品语义、不
 
 ### Windows（本里程碑必达）
 
-- [ ] `dicomflow app`（或等价入口）可启动桌面窗口
-- [ ] 无外网时可完成：选 zip/rar → 转换 → 预览/导出
-- [ ] 打包文档/脚本可在干净 Windows 上离线运行（依赖随包）
-- [ ] 自动化：至少单元/冒烟覆盖 app 启动配置（无 GUI 的 headless 测配置）
+- [x] `dicomflow app` / `apps/offline/windows/entry.py` 可启动桌面窗口（需 WebView2）
+- [ ] 无外网时可完成：选 zip/rar → 转换 → 预览/导出（真机验收）
+- [x] PyInstaller 一目录打包脚本：`build.ps1` / `DicomFlow.spec`（在 Windows 上出 `dist/DicomFlow`）
+- [x] 自动化：offline 配置 / bootstrap / web 路径 / prepare_env 单测
+- [ ] 干净 Windows 机离线验收（无 Python 环境，仅便携目录）
 
 ### Android（本里程碑必达骨架 + 路径清晰）
 

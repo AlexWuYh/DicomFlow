@@ -27,6 +27,7 @@ def bootstrap(settings: Settings = Depends(get_app_settings)):
         "captcha_site_key": settings.turnstile_site_key if captcha_on else None,
         "max_upload_bytes": settings.max_upload_bytes,
         "job_ttl_hours": settings.job_ttl_hours,
+        "offline_app": bool(settings.offline_app),
     }
 
 

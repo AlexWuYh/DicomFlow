@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Self
@@ -9,7 +10,20 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _bundle_root() -> Path | None:
+    """PyInstaller / frozen app extract dir, if any."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return None
+
+
 def _default_web_dir() -> Path:
+    # Packaged offline app: web/ is bundled next to the frozen payload
+    bundle = _bundle_root()
+    if bundle is not None:
+        candidate = bundle / "web"
+        if candidate.is_dir():
+            return candidate
     here = Path(__file__).resolve()
     candidate = here.parents[3] / "web"
     if candidate.is_dir():

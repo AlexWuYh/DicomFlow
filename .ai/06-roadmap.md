@@ -42,8 +42,9 @@
 
 - [x] 里程碑规格 + 仓库骨架（`apps/offline/`、`dicomflow app`）
 - [x] Windows：离线桌面壳（pywebview + 本机 loopback，强制无密码/captcha）
-- [ ] Windows：PyInstaller 等可分发打包与干净机验收
-- [ ] Android：技术选型 spike + 工程 / 最小离线转换 PoC
+- [x] Windows：PyInstaller spec + `build.ps1` / `build.sh`（便携目录）
+- [ ] Windows：干净机断网验收 + 可选安装包（Inno）
+- [ ] Android：Compose 工程 + 最小离线转换（主选 Kotlin，见 12-offline-app）
 - [ ] 双端：完全断网验收清单通过
 
 （PWA / iOS 等为后续扩展，非本阶段必达。）

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -41,14 +42,12 @@ def _default_app_data_dir() -> Path:
     return Path.home() / ".dicomflow" / "app-data"
 
 
-def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) -> int:
+def _prepare_offline_env(*, port: int | None, data_dir: Path | None) -> tuple[Path, int]:
     """
-    Start localhost API+UI and open a native window.
+    Inject env before Settings/get_settings first load.
 
-    Completely offline by design: binds 127.0.0.1 only; disables access token
-    and Turnstile via Settings.offline_app.
+    Returns (app_data_dir, bind_port).
     """
-    # Must be set before Settings() / get_settings() are first used
     os.environ["DICOMFLOW_OFFLINE_APP"] = "true"
     os.environ["DICOMFLOW_HOST"] = "127.0.0.1"
     os.environ["DICOMFLOW_ACCESS_TOKEN"] = ""
@@ -57,9 +56,27 @@ def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) ->
     os.environ.pop("DICOMFLOW_TURNSTILE_SECRET_KEY", None)
     os.environ.pop("DICOMFLOW_TURNSTILE_SITE_KEY", None)
 
+    # Avoid reading a developer .env that re-enables token/captcha in packaged app
+    if getattr(sys, "frozen", False):
+        os.environ.pop("DICOMFLOW_ENV_FILE", None)
+
     app_data = (data_dir or _default_app_data_dir()).resolve()
     app_data.mkdir(parents=True, exist_ok=True)
     os.environ["DICOMFLOW_DATA_DIR"] = str(app_data)
+
+    bind_port = port or _free_port()
+    os.environ["DICOMFLOW_PORT"] = str(bind_port)
+    return app_data, bind_port
+
+
+def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) -> int:
+    """
+    Start localhost API+UI and open a native window.
+
+    Completely offline by design: binds 127.0.0.1 only; disables access token
+    and Turnstile via Settings.offline_app.
+    """
+    app_data, bind_port = _prepare_offline_env(port=port, data_dir=data_dir)
 
     from dicomflow.core.config import get_settings
 
@@ -68,10 +85,10 @@ def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) ->
     if not settings.offline_app:
         logger.error("offline_app flag not applied; refusing to start desktop shell")
         return 2
-
-    bind_port = port or _free_port()
-    os.environ["DICOMFLOW_PORT"] = str(bind_port)
-    get_settings.cache_clear()
+    if not settings.web_dir.is_dir():
+        print(f"找不到前端目录: {settings.web_dir}")
+        print("打包时请将 web/ 一并打入资源（见 apps/offline/windows/）。")
+        return 1
 
     try:
         import webview
@@ -92,10 +109,12 @@ def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) ->
         app,
         host="127.0.0.1",
         port=bind_port,
-        log_level="info",
+        log_level="warning",
         access_log=False,
     )
     server = uvicorn.Server(config)
+    # Avoid uvicorn installing its own signal handlers inside a non-main thread
+    server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     thread = threading.Thread(target=server.run, name="dicomflow-uvicorn", daemon=True)
     thread.start()
@@ -109,16 +128,18 @@ def run_offline_app(*, port: int | None = None, data_dir: Path | None = None) ->
 
     print(f"DicomFlow 离线 App 已启动（仅本机）: {url}")
     print(f"数据目录: {app_data}")
+    print(f"前端目录: {settings.web_dir}")
 
-    window = webview.create_window(
+    webview.create_window(
         "DicomFlow",
         url,
         width=1100,
         height=800,
         min_size=(800, 600),
     )
-    webview.start()
-    # Window closed
-    server.should_exit = True
-    thread.join(timeout=5.0)
+    try:
+        webview.start()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=8.0)
     return 0

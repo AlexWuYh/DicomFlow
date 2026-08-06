@@ -18,7 +18,14 @@ dicomflow app
 - Disables access password and Turnstile
 - Data under `%LOCALAPPDATA%\DicomFlow` by default
 
-Packaging notes: [windows/](./windows/).
+Portable build (on Windows):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/offline/windows/build.ps1
+# → dist/DicomFlow/DicomFlow.exe
+```
+
+Details: [windows/](./windows/).
 
 ## Android
 

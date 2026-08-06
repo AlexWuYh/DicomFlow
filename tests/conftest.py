@@ -22,6 +22,9 @@ def _isolate_runtime_env(monkeypatch, tmp_path):
     monkeypatch.setenv("DICOMFLOW_TURNSTILE_SECRET_KEY", "")
     monkeypatch.setenv("TURNSTILE_SECRET", "")
     monkeypatch.setenv("DICOMFLOW_ENABLE_DOCS", "false")
+    # Prevent offline-app tests from leaking into auth/captcha suites
+    monkeypatch.setenv("DICOMFLOW_OFFLINE_APP", "false")
+    monkeypatch.setenv("DICOMFLOW_HOST", "127.0.0.1")
     set_verify_transport(None)
     get_settings.cache_clear()
     get_job_service.cache_clear()

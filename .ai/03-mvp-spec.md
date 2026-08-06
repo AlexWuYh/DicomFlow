@@ -61,6 +61,7 @@ GIF 始终有硬上限；会诊优先 MP4。
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/bootstrap` | 公开配置：`auth_required`、`captcha_enabled`、`captcha_site_key`、`job_ttl_hours` 等 |
+| GET | `/auth/check` | SPA 密码门：需正确 `X-DicomFlow-Token`（令牌关闭时直接 200） |
 | POST | `/uploads` | multipart `file`；可选 `cf-turnstile-response` |
 | POST | `/jobs` | JSON：`upload_id` + 转换参数 → 202 `{ job_id, status }` |
 | GET | `/jobs/{id}` | 状态、进度、result、error |

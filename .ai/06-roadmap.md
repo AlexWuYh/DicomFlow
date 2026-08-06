@@ -36,9 +36,17 @@
 - [ ] 网关 / Redis 限流  
 - [ ] 审计日志（脱敏）
 
-## Phase 4 — 多端（按需）
+## Phase 4 — 完全离线 App（优先 Windows + Android）
 
-- [ ] PWA / 桌面壳 / 移动端  
+规格：[12-offline-app.md](./12-offline-app.md) · 分支：`feature/offline-app`
+
+- [x] 里程碑规格 + 仓库骨架（`apps/offline/`、`dicomflow app`）
+- [x] Windows：离线桌面壳（pywebview + 本机 loopback，强制无密码/captcha）
+- [ ] Windows：PyInstaller 等可分发打包与干净机验收
+- [ ] Android：技术选型 spike + 工程 / 最小离线转换 PoC
+- [ ] 双端：完全断网验收清单通过
+
+（PWA / iOS 等为后续扩展，非本阶段必达。）
 
 ## 非目标
 

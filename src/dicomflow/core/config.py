@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # Prefer unprefixed TURNSTILE_SECRET (Spin canonical); see resolve_turnstile_secret
     turnstile_secret_key: str | None = None
 
+    # Offline desktop/mobile shell: no public bind, no password/captcha
+    offline_app: bool = False
+
     @field_validator("access_token", "turnstile_site_key", "turnstile_secret_key", mode="before")
     @classmethod
     def empty_str_as_none(cls, v):  # noqa: ANN001
@@ -89,20 +92,31 @@ class Settings(BaseSettings):
         return s or None
 
     @model_validator(mode="after")
-    def resolve_turnstile_secret(self) -> Self:
+    def resolve_secrets_and_offline_mode(self) -> Self:
         """
-        Secret resolution order (never log the value):
+        Resolve Turnstile secret, then apply offline-app hard overrides.
+
+        Secret resolution (never log the value):
         1. DICOMFLOW_TURNSTILE_SECRET_KEY (already on turnstile_secret_key)
-        2. TURNSTILE_SECRET process env (canonical Spin / Cloudflare name)
+        2. TURNSTILE_SECRET process env
         3. TURNSTILE_SECRET in .env file
         """
-        if self.turnstile_secret_key:
-            return self
-        secret = os.environ.get("TURNSTILE_SECRET")
-        if not secret or not str(secret).strip():
-            secret = _read_env_file_value("TURNSTILE_SECRET")
-        if secret and str(secret).strip():
-            self.turnstile_secret_key = str(secret).strip()
+        if not self.turnstile_secret_key:
+            secret = os.environ.get("TURNSTILE_SECRET")
+            if not secret or not str(secret).strip():
+                secret = _read_env_file_value("TURNSTILE_SECRET")
+            if secret and str(secret).strip():
+                self.turnstile_secret_key = str(secret).strip()
+
+        # Offline desktop/mobile shell: local-only, no password/captcha
+        if self.offline_app:
+            self.host = "127.0.0.1"
+            self.access_token = None
+            self.captcha_enabled = False
+            self.turnstile_site_key = None
+            self.turnstile_secret_key = None
+            self.enable_docs = False
+            self.trust_x_forwarded_for = False
         return self
 
     @property

@@ -40,6 +40,22 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=None, help="Bind host (default 127.0.0.1)")
     serve.add_argument("--port", type=int, default=None, help="Bind port (default 8765)")
 
+    app_cmd = sub.add_parser(
+        "app",
+        help="Start offline desktop app (Windows-first: local UI window, no network)",
+    )
+    app_cmd.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Loopback port (default: ephemeral free port)",
+    )
+    app_cmd.add_argument(
+        "--data-dir",
+        default=None,
+        help="App data directory (uploads/outputs); default: platform app data path",
+    )
+
     return parser
 
 
@@ -90,6 +106,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_app(args: argparse.Namespace) -> int:
+    from dicomflow.desktop.app import run_offline_app
+
+    data_dir = Path(args.data_dir) if args.data_dir else None
+    return run_offline_app(port=args.port, data_dir=data_dir)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -98,6 +121,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(cmd_convert(args))
         if args.command == "serve":
             raise SystemExit(cmd_serve(args))
+        if args.command == "app":
+            raise SystemExit(cmd_app(args))
         parser.error(f"unknown command {args.command}")
     except KeyboardInterrupt:
         raise SystemExit(130) from None

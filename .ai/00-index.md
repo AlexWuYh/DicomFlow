@@ -14,6 +14,7 @@
 | [07-docker.md](./07-docker.md) | 容器部署注意点（补 README） |
 | [09-security.md](./09-security.md) | 安全默认、鉴权/captcha、公网清单 |
 | [11-development.md](./11-development.md) | 里程碑模式、分支、CI/Release |
+| [12-offline-app.md](./12-offline-app.md) | 完全离线 App（优先 Windows + Android） |
 
 ## 一句话定义
 

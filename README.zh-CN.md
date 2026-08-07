@@ -23,7 +23,7 @@
 | 标签 | 镜像 |
 |------|------|
 | 最新（compose 默认） | `ghcr.io/alexwuyh/dicomflow:latest` |
-| 固定版本 | `ghcr.io/alexwuyh/dicomflow:0.1.0` |
+| 固定版本 | `ghcr.io/alexwuyh/dicomflow:0.2.0` |
 | 包页面 | https://github.com/AlexWuYh/DicomFlow/pkgs/container/dicomflow |
 
 ```bash
@@ -33,7 +33,7 @@ docker compose up -d
 # 打开 http://127.0.0.1:8765
 
 # 固定版本
-DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.1.0 docker compose up -d
+DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.2.0 docker compose up -d
 ```
 
 若出现 `ghcr.io` **超时**，先解决网络/代理/镜像加速；默认 **不会** 自动本地编译。只有完整 clone 仓库后才可：
@@ -71,6 +71,15 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 
 ```bash
 export DICOMFLOW_ACCESS_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d
+```
+
+若经 **Cloudflare Tunnel / Zero Trust** 暴露公网，单次上传常受约 **100MB** 体限制；请开启分片上传：
+
+```bash
+export DICOMFLOW_CHUNKED_UPLOAD_ENABLED=true
+# 可选：默认 16MB/片（范围 1–90）
+# export DICOMFLOW_CHUNK_SIZE_MB=16
 docker compose up -d
 ```
 
@@ -125,6 +134,8 @@ docker-compose.yml
 | `TURNSTILE_SECRET` | 空 | 开启 captcha 时必填（服务端 secret，勿提交） |
 | `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI 文档开关 |
 | `DICOMFLOW_MAX_UPLOAD_BYTES` | 1 GiB | 上传上限 |
+| `DICOMFLOW_CHUNKED_UPLOAD_ENABLED` | `false` | 分片上传（Cloudflare Tunnel 公网建议开启） |
+| `DICOMFLOW_CHUNK_SIZE_MB` | `16` | 开启分片时的每片大小（单位 MB，范围 1–90） |
 | `DICOMFLOW_JOB_TTL_HOURS` | `24` | 自动清理 |
 | `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | 仅可信反代后开启 |
 | `DICOMFLOW_ALLOWED_HOSTS` | `*` | 生产改为域名 |

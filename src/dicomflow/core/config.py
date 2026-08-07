@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     max_extract_files: int = 100_000
     max_compression_ratio: float = 100.0
     allowed_upload_extensions: str = ".zip,.rar,.7z,.tar,.gz,.tgz"
+    # Chunked upload (Cloudflare Tunnel / reverse-proxy body limits ~100 MiB)
+    # Off by default; enable for public CF Zero Trust so large packages can pass.
+    chunked_upload_enabled: bool = False
+    # Per-part size in megabytes (default 16). Keep well under proxy caps (~100MB on CF Free).
+    chunk_size_mb: int = 16
+    # Soft cap on number of parts (also bounded by max_upload_bytes / chunk_size)
+    max_upload_chunks: int = 512
 
     default_fps: int = 10
     # Auto-delete uploads/work/outputs (and in-memory job meta) after this many hours
@@ -69,6 +76,8 @@ class Settings(BaseSettings):
     access_token: str | None = None  # if set, all /api/* (except health) require it
     rate_limit_rpm: int = 60  # requests per minute per IP
     rate_limit_uploads_per_hour: int = 20
+    # Chunk part PUTs use a higher RPM so multi-hundred-MB files are not blocked mid-stream
+    rate_limit_chunk_rpm: int = 300
     allowed_hosts: str = "*"  # comma-separated; use domain in production
     cors_origins: str = ""  # empty = no cross-origin; set explicit origins if needed
     # Only enable when a trusted reverse proxy sets X-Forwarded-For
@@ -105,6 +114,19 @@ class Settings(BaseSettings):
             self.turnstile_secret_key = str(secret).strip()
         return self
 
+    @field_validator("chunk_size_mb", mode="before")
+    @classmethod
+    def coerce_chunk_size_mb(cls, v):  # noqa: ANN001
+        """Accept int/float/str; clamp to a practical range (1–90 MB)."""
+        if v is None or v == "":
+            return 16
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            return 16
+        # 1 MB min; 90 MB max stays under typical Cloudflare Free ~100 MB body limit
+        return max(1, min(n, 90))
+
     @property
     def captcha_active(self) -> bool:
         """True only when captcha is switched on and both Turnstile keys are set."""
@@ -113,6 +135,11 @@ class Settings(BaseSettings):
             and self.turnstile_site_key
             and self.turnstile_secret_key
         )
+
+    @property
+    def chunk_size_bytes(self) -> int:
+        """Resolved part size in bytes (from chunk_size_mb)."""
+        return int(self.chunk_size_mb) * 1024 * 1024
 
     @property
     def uploads_dir(self) -> Path:

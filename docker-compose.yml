@@ -27,6 +27,7 @@ services:
       DICOMFLOW_ENABLE_DOCS: "false"
       DICOMFLOW_RATE_LIMIT_RPM: "60"
       DICOMFLOW_RATE_LIMIT_UPLOADS_PER_HOUR: "20"
+      DICOMFLOW_RATE_LIMIT_CHUNK_RPM: "${DICOMFLOW_RATE_LIMIT_CHUNK_RPM:-300}"
       # 生产示例: DICOMFLOW_ALLOWED_HOSTS=dicomflow.example.com
       DICOMFLOW_ALLOWED_HOSTS: "*"
       # 上传/转换结果保留时长（小时）
@@ -34,6 +35,10 @@ services:
       DICOMFLOW_CLEANUP_INTERVAL_SECONDS: "900"
       # 仅在可信反向代理后设为 true
       DICOMFLOW_TRUST_X_FORWARDED_FOR: "false"
+      # Cloudflare Tunnel / 公网反代建议 true（绕过 ~100MB 单请求体限制）
+      DICOMFLOW_CHUNKED_UPLOAD_ENABLED: "${DICOMFLOW_CHUNKED_UPLOAD_ENABLED:-false}"
+      DICOMFLOW_CHUNK_SIZE_MB: "${DICOMFLOW_CHUNK_SIZE_MB:-16}"
+      DICOMFLOW_MAX_UPLOAD_CHUNKS: "${DICOMFLOW_MAX_UPLOAD_CHUNKS:-512}"
     volumes:
       # 任务上传/解压/输出持久化（不依赖宿主机源码目录）
       - dicomflow-data:/data

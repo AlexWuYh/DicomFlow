@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import secrets
 import threading
 import time
@@ -18,6 +19,9 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/health",
     "/api/v1/bootstrap",
 )
+
+# Multi-part chunk PUT: higher RPM so large packages are not mid-stream blocked
+_CHUNK_PATH_RE = re.compile(r"^/api/v1/uploads/[^/]+/chunks/\d+$")
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -109,10 +113,24 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path
+        path_norm = path.rstrip("/") or "/"
+        method = request.method.upper()
         ip = client_ip(request, trust_x_forwarded_for=self.settings.trust_x_forwarded_for)
+        is_chunk_part = bool(_CHUNK_PATH_RE.match(path_norm)) and method == "PUT"
 
-        # Global RPM
-        if not _rate_limiter.allow(
+        # Global RPM (chunk parts use a higher dedicated budget)
+        if is_chunk_part:
+            if not _rate_limiter.allow(
+                f"chunk_rpm:{ip}",
+                limit=max(1, self.settings.rate_limit_chunk_rpm),
+                window_seconds=60.0,
+            ):
+                return self._json(
+                    429,
+                    "RATE_LIMITED",
+                    "分片上传过于频繁，请稍后再试",
+                )
+        elif not _rate_limiter.allow(
             f"rpm:{ip}",
             limit=max(1, self.settings.rate_limit_rpm),
             window_seconds=60.0,
@@ -123,8 +141,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 "请求过于频繁，请稍后再试",
             )
 
-        # Upload-specific hourly limit
-        if path.rstrip("/") == "/api/v1/uploads" and request.method.upper() == "POST":
+        # Upload-specific hourly limit (count whole-file and init only — not each part)
+        if method == "POST" and path_norm in (
+            "/api/v1/uploads",
+            "/api/v1/uploads/init",
+        ):
             if not _rate_limiter.allow(
                 f"up:{ip}",
                 limit=max(1, self.settings.rate_limit_uploads_per_hour),

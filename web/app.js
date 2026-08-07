@@ -365,6 +365,10 @@
       const res = await fetch("/api/v1/bootstrap");
       if (!res.ok) return;
       const data = await res.json();
+      state.chunkedUploadEnabled = Boolean(data.chunked_upload_enabled);
+      if (data.chunk_size_bytes && Number(data.chunk_size_bytes) > 0) {
+        state.chunkSizeBytes = Number(data.chunk_size_bytes);
+      }
       if (data.auth_required) {
         const existing = getToken();
         if (existing) {
@@ -397,6 +401,45 @@
     }
   }
 
+  function parseApiError(status, body, textFallback) {
+    let detail = "";
+    let code = "";
+    if (body && typeof body === "object") {
+      detail = body.detail || body.message || "";
+      code = body.code || "";
+      if (typeof detail === "object" && detail) {
+        code = detail.code || code;
+        detail = detail.detail || detail.message || JSON.stringify(detail);
+      }
+    }
+    if (!detail && textFallback) detail = String(textFallback).slice(0, 200);
+    // Cloudflare / reverse-proxy friendly messages
+    if (status === 413) {
+      return {
+        code: code || "PAYLOAD_TOO_LARGE",
+        detail:
+          detail && !/<html/i.test(detail)
+            ? detail
+            : "文件过大，被网关拒绝（例如 Cloudflare 约 100MB 限制）。请启用分片上传或缩小文件。",
+      };
+    }
+    if (status === 524 || status === 504) {
+      return {
+        code: code || "GATEWAY_TIMEOUT",
+        detail: "上传超时（网关等待过久）。大文件请启用分片上传后重试。",
+      };
+    }
+    if (status === 502 || status === 503) {
+      return {
+        code: code || "BAD_GATEWAY",
+        detail: detail && !/<html/i.test(detail)
+          ? detail
+          : "网关错误，上传中断。大文件请启用分片上传后重试。",
+      };
+    }
+    return { code, detail: detail || `HTTP ${status}` };
+  }
+
   async function apiFetch(url, options) {
     const opts = options || {};
     const headers = authHeaders(opts.headers || {});
@@ -423,6 +466,11 @@
     jobId: null,
     pollTimer: null,
     outputFormat: null,
+    /** From bootstrap: use multi-part when true (Cloudflare-friendly). */
+    chunkedUploadEnabled: false,
+    chunkSizeBytes: 16 * 1024 * 1024,
+    /** Abort token for in-flight chunked upload */
+    uploadGeneration: 0,
   };
 
   function formatBytes(n) {
@@ -524,10 +572,20 @@
     }
 
     state.uploading = true;
+    state.uploadGeneration += 1;
+    const gen = state.uploadGeneration;
     updateConvertEnabled();
     uploadMsg.textContent = "正在上传文件…";
     setError("");
 
+    if (state.chunkedUploadEnabled) {
+      startChunkedUpload(file, gen);
+      return;
+    }
+    startSingleUpload(file, gen);
+  }
+
+  function startSingleUpload(file, gen) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/v1/uploads");
     xhr.responseType = "json";
@@ -536,6 +594,7 @@
     if (tok) xhr.setRequestHeader("X-DicomFlow-Token", tok);
 
     xhr.upload.onprogress = (e) => {
+      if (gen !== state.uploadGeneration) return;
       if (!e.lengthComputable) {
         uploadMsg.textContent = "正在上传文件…";
         return;
@@ -546,6 +605,7 @@
     };
 
     xhr.onload = async () => {
+      if (gen !== state.uploadGeneration) return;
       if (xhr.status === 401) {
         state.uploading = false;
         try {
@@ -560,40 +620,31 @@
       }
       state.uploading = false;
       if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.upload_id) {
-        state.uploadId = xhr.response.upload_id;
-        setBar(uploadBar, uploadWrap, uploadPct, 100);
-        setUploadBadge("ready", "已完成");
-        uploadMsg.textContent = `上传成功：${xhr.response.filename || file.name}（${formatBytes(
-          xhr.response.size_bytes || file.size
-        )}）`;
-        // Token is one-time; reset so a re-upload gets a fresh challenge
-        resetCaptcha();
-        updateConvertEnabled();
+        onUploadSuccess(xhr.response, file);
         return;
       }
-      let detail = "";
-      let code = "";
-      try {
-        const body = typeof xhr.response === "object" ? xhr.response : null;
-        detail = body?.detail || body?.message || xhr.responseText || xhr.statusText;
-        code = body?.code || "";
-        if (typeof detail === "object") detail = JSON.stringify(detail);
-      } catch {
-        detail = xhr.statusText;
+      let body = typeof xhr.response === "object" ? xhr.response : null;
+      if (!body && xhr.responseText) {
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch (_) {
+          body = null;
+        }
       }
-      // Captcha failed / expired — refresh widget for retry
-      if (code.startsWith("CAPTCHA") || xhr.status === 400) {
+      const parsed = parseApiError(xhr.status, body, xhr.responseText || xhr.statusText);
+      if (String(parsed.code).startsWith("CAPTCHA") || xhr.status === 400) {
         resetCaptcha();
       }
       setUploadBadge("error", "失败");
-      uploadMsg.textContent = code.startsWith("CAPTCHA")
+      uploadMsg.textContent = String(parsed.code).startsWith("CAPTCHA")
         ? "人机验证未通过，请重试"
         : "上传失败，请重试";
-      setError(`上传失败：${detail || "请检查文件后重试"}`);
+      setError(`上传失败：${parsed.detail || "请检查文件后重试"}`);
       updateConvertEnabled();
     };
 
     xhr.onerror = () => {
+      if (gen !== state.uploadGeneration) return;
       state.uploading = false;
       setUploadBadge("error", "失败");
       uploadMsg.textContent = "网络异常，请重试";
@@ -608,6 +659,215 @@
       body.append("cf-turnstile-response", captchaTok);
     }
     xhr.send(body);
+  }
+
+  function onUploadSuccess(data, file) {
+    state.uploadId = data.upload_id;
+    setBar(uploadBar, uploadWrap, uploadPct, 100);
+    setUploadBadge("ready", "已完成");
+    uploadMsg.textContent = `上传成功：${data.filename || file.name}（${formatBytes(
+      data.size_bytes || file.size
+    )}）`;
+    resetCaptcha();
+    updateConvertEnabled();
+  }
+
+  /**
+   * Multi-part upload: init → PUT parts → complete.
+   * Each part is small enough for Cloudflare Free (~100MB body + ~100s timeout).
+   */
+  async function startChunkedUpload(file, gen) {
+    const chunkSize = Math.max(64 * 1024, state.chunkSizeBytes || 8 * 1024 * 1024);
+    const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+
+    const fail = (msg, opts) => {
+      if (gen !== state.uploadGeneration) return;
+      state.uploading = false;
+      setUploadBadge("error", "失败");
+      uploadMsg.textContent = (opts && opts.badge) || "上传失败，请重试";
+      setError(`上传失败：${msg || "请检查文件后重试"}`);
+      if (opts && opts.resetCaptcha) resetCaptcha();
+      updateConvertEnabled();
+    };
+
+    try {
+      uploadMsg.textContent = `准备分片上传（共 ${totalChunks} 片）…`;
+      const initPayload = {
+        filename: file.name,
+        size_bytes: file.size,
+      };
+      const captchaTok = getCaptchaToken();
+      if (captchaTok) initPayload.captcha_token = captchaTok;
+
+      const initHeaders = authHeaders({ "Content-Type": "application/json" });
+      if (captchaTok) {
+        initHeaders["cf-turnstile-response"] = captchaTok;
+        initHeaders["x-turnstile-token"] = captchaTok;
+      }
+
+      let initRes = await fetch("/api/v1/uploads/init", {
+        method: "POST",
+        headers: initHeaders,
+        body: JSON.stringify(initPayload),
+      });
+      if (initRes.status === 401) {
+        await showAuthOverlay("请先输入访问密码");
+        if (gen !== state.uploadGeneration) return;
+        initRes = await fetch("/api/v1/uploads/init", {
+          method: "POST",
+          headers: authHeaders({
+            "Content-Type": "application/json",
+            ...(captchaTok
+              ? {
+                  "cf-turnstile-response": captchaTok,
+                  "x-turnstile-token": captchaTok,
+                }
+              : {}),
+          }),
+          body: JSON.stringify(initPayload),
+        });
+      }
+      if (gen !== state.uploadGeneration) return;
+
+      if (!initRes.ok) {
+        let body = null;
+        const text = await initRes.text();
+        try {
+          body = JSON.parse(text);
+        } catch (_) {}
+        const parsed = parseApiError(initRes.status, body, text);
+        if (String(parsed.code).startsWith("CAPTCHA")) {
+          fail(parsed.detail, { badge: "人机验证未通过，请重试", resetCaptcha: true });
+        } else {
+          fail(parsed.detail, { resetCaptcha: initRes.status === 400 });
+        }
+        return;
+      }
+
+      const session = await initRes.json();
+      const uploadId = session.upload_id;
+      const serverChunk = session.chunk_size_bytes || chunkSize;
+      const serverTotal = session.total_chunks || totalChunks;
+      let uploadedBytes = 0;
+
+      for (let i = 0; i < serverTotal; i++) {
+        if (gen !== state.uploadGeneration) return;
+        const start = i * serverChunk;
+        const end = Math.min(file.size, start + serverChunk);
+        const blob = file.slice(start, end);
+
+        const partOk = await putChunkWithRetry(uploadId, i, blob, {
+          gen,
+          onProgress: (loaded) => {
+            if (gen !== state.uploadGeneration) return;
+            const overall = uploadedBytes + loaded;
+            const pct = file.size ? (overall / file.size) * 100 : 0;
+            setBar(uploadBar, uploadWrap, uploadPct, pct);
+            uploadMsg.textContent = `分片上传 ${i + 1}/${serverTotal} · ${formatBytes(
+              Math.min(overall, file.size)
+            )} / ${formatBytes(file.size)}`;
+          },
+        });
+        if (!partOk.ok) {
+          fail(partOk.detail || `第 ${i + 1} 片上传失败`);
+          return;
+        }
+        uploadedBytes += blob.size;
+      }
+
+      if (gen !== state.uploadGeneration) return;
+      uploadMsg.textContent = "正在合并分片…";
+      const doneRes = await apiFetch(`/api/v1/uploads/${uploadId}/complete`, {
+        method: "POST",
+      });
+      if (gen !== state.uploadGeneration) return;
+      if (!doneRes.ok) {
+        let body = null;
+        const text = await doneRes.text();
+        try {
+          body = JSON.parse(text);
+        } catch (_) {}
+        const parsed = parseApiError(doneRes.status, body, text);
+        fail(parsed.detail || "合并分片失败");
+        return;
+      }
+      const data = await doneRes.json();
+      state.uploading = false;
+      onUploadSuccess(data, file);
+    } catch (e) {
+      if (gen !== state.uploadGeneration) return;
+      fail(e && e.message ? e.message : String(e));
+    }
+  }
+
+  function putChunkWithRetry(uploadId, index, blob, { gen, onProgress, maxAttempts }) {
+    const attempts = maxAttempts || 3;
+    return new Promise((resolve) => {
+      let attempt = 0;
+      const run = () => {
+        if (gen !== state.uploadGeneration) {
+          resolve({ ok: false, detail: "已取消" });
+          return;
+        }
+        attempt += 1;
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", `/api/v1/uploads/${uploadId}/chunks/${index}`);
+        xhr.responseType = "json";
+        xhr.timeout = 0;
+        const tok = getToken();
+        if (tok) xhr.setRequestHeader("X-DicomFlow-Token", tok);
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+        xhr.upload.onprogress = (e) => {
+          if (onProgress && e.lengthComputable) onProgress(e.loaded);
+        };
+
+        xhr.onload = () => {
+          if (gen !== state.uploadGeneration) {
+            resolve({ ok: false, detail: "已取消" });
+            return;
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ ok: true });
+            return;
+          }
+          if (xhr.status === 401 && attempt < attempts) {
+            showAuthOverlay("请先输入访问密码")
+              .then(() => run())
+              .catch(() => resolve({ ok: false, detail: "未通过验证" }));
+            return;
+          }
+          // Retry transient gateway errors
+          if ((xhr.status === 502 || xhr.status === 503 || xhr.status === 524) && attempt < attempts) {
+            setTimeout(run, 500 * attempt);
+            return;
+          }
+          let body = typeof xhr.response === "object" ? xhr.response : null;
+          if (!body && xhr.responseText) {
+            try {
+              body = JSON.parse(xhr.responseText);
+            } catch (_) {}
+          }
+          const parsed = parseApiError(xhr.status, body, xhr.responseText || xhr.statusText);
+          resolve({ ok: false, detail: parsed.detail });
+        };
+
+        xhr.onerror = () => {
+          if (gen !== state.uploadGeneration) {
+            resolve({ ok: false, detail: "已取消" });
+            return;
+          }
+          if (attempt < attempts) {
+            setTimeout(run, 500 * attempt);
+            return;
+          }
+          resolve({ ok: false, detail: "网络异常，分片上传失败" });
+        };
+
+        xhr.send(blob);
+      };
+      run();
+    });
   }
 
   async function startConvert() {
@@ -920,15 +1180,20 @@
     if (file) selectFile(file);
   });
   clearFileBtn.addEventListener("click", () => {
+    state.uploadGeneration += 1; // cancel in-flight upload
     state.file = null;
     state.uploadId = null;
+    state.uploading = false;
     state.outputFormat = null;
     state.converting = false;
     fileInput.value = "";
     fileChip.hidden = true;
     setBar(uploadBar, uploadWrap, uploadPct, 0);
+    setUploadBadge("idle", "待上传");
+    uploadMsg.textContent = "请先选择要转换的文件";
     resultPanel.hidden = true;
     clearPreviewMedia();
+    setError("");
     updateConvertEnabled();
     updateUploadGate();
   });

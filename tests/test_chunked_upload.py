@@ -59,7 +59,9 @@ def test_chunked_happy_path(tmp_path, monkeypatch):
 
     for i in range(2):
         part = payload[i * chunk : (i + 1) * chunk]
-        r = client.put(
+        # Prefer POST (what the SPA uses); PUT still accepted
+        method = client.post if i == 0 else client.put
+        r = method(
             f"/api/v1/uploads/{upload_id}/chunks/{i}",
             content=part,
             headers={"Content-Type": "application/octet-stream"},

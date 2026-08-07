@@ -7,9 +7,10 @@ import time
 from collections import defaultdict, deque
 from typing import Callable
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from dicomflow.core.config import Settings
 
@@ -20,7 +21,7 @@ PUBLIC_PATH_PREFIXES = (
     "/api/v1/bootstrap",
 )
 
-# Multi-part chunk PUT: higher RPM so large packages are not mid-stream blocked
+# Multi-part chunk body: higher RPM so large packages are not mid-stream blocked
 _CHUNK_PATH_RE = re.compile(r"^/api/v1/uploads/[^/]+/chunks/\d+$")
 
 SECURITY_HEADERS = {
@@ -63,6 +64,19 @@ def client_ip(request: Request, *, trust_x_forwarded_for: bool) -> str:
     return "unknown"
 
 
+def _client_ip_from_scope(scope: Scope, *, trust_x_forwarded_for: bool) -> str:
+    """Resolve client IP without constructing a full Request (avoids body buffering)."""
+    if trust_x_forwarded_for:
+        headers = Headers(scope=scope)
+        xff = headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip() or "unknown"
+    client = scope.get("client")
+    if client and client[0]:
+        return str(client[0])
+    return "unknown"
+
+
 class RateLimiter:
     """Simple in-memory sliding window limiter (single-process)."""
 
@@ -98,25 +112,55 @@ def extract_access_token(request: Request) -> str | None:
     return cookie.strip() if cookie else None
 
 
+def extract_access_token_from_headers(headers: Headers) -> str | None:
+    header = headers.get("x-dicomflow-token") or headers.get("authorization")
+    if header:
+        if header.lower().startswith("bearer "):
+            return header[7:].strip() or None
+        return header.strip() or None
+    # Cookie is available via headers as well
+    cookie = headers.get("cookie") or ""
+    for part in cookie.split(";"):
+        part = part.strip()
+        if part.lower().startswith("dicomflow_token="):
+            return part.split("=", 1)[1].strip() or None
+    return None
+
+
 def token_ok(provided: str | None, expected: str) -> bool:
     if not provided:
         return False
     return secrets.compare_digest(provided, expected)
 
 
-class SecurityMiddleware(BaseHTTPMiddleware):
-    """Access token + rate limits + security headers."""
+class SecurityMiddleware:
+    """
+    Access token + rate limits + security headers.
 
-    def __init__(self, app, settings: Settings):  # noqa: ANN001
-        super().__init__(app)
+    Implemented as pure ASGI middleware (not BaseHTTPMiddleware).
+    BaseHTTPMiddleware buffers request bodies and is known to hang/deadlock
+    on multi-megabyte uploads — fatal for chunked DICOM packages behind CF Tunnel.
+    """
+
+    def __init__(self, app: ASGIApp, settings: Settings):
+        self.app = app
         self.settings = settings
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        path = request.url.path
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path") or "/"
         path_norm = path.rstrip("/") or "/"
-        method = request.method.upper()
-        ip = client_ip(request, trust_x_forwarded_for=self.settings.trust_x_forwarded_for)
-        is_chunk_part = bool(_CHUNK_PATH_RE.match(path_norm)) and method == "PUT"
+        method = (scope.get("method") or "GET").upper()
+        ip = _client_ip_from_scope(
+            scope, trust_x_forwarded_for=self.settings.trust_x_forwarded_for
+        )
+        is_chunk_part = bool(_CHUNK_PATH_RE.match(path_norm)) and method in (
+            "PUT",
+            "POST",
+        )
 
         # Global RPM (chunk parts use a higher dedicated budget)
         if is_chunk_part:
@@ -125,21 +169,29 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 limit=max(1, self.settings.rate_limit_chunk_rpm),
                 window_seconds=60.0,
             ):
-                return self._json(
+                await self._send_json(
+                    scope,
+                    receive,
+                    send,
                     429,
                     "RATE_LIMITED",
                     "分片上传过于频繁，请稍后再试",
                 )
+                return
         elif not _rate_limiter.allow(
             f"rpm:{ip}",
             limit=max(1, self.settings.rate_limit_rpm),
             window_seconds=60.0,
         ):
-            return self._json(
+            await self._send_json(
+                scope,
+                receive,
+                send,
                 429,
                 "RATE_LIMITED",
                 "请求过于频繁，请稍后再试",
             )
+            return
 
         # Upload-specific hourly limit (count whole-file and init only — not each part)
         if method == "POST" and path_norm in (
@@ -151,30 +203,43 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 limit=max(1, self.settings.rate_limit_uploads_per_hour),
                 window_seconds=3600.0,
             ):
-                return self._json(
+                await self._send_json(
+                    scope,
+                    receive,
+                    send,
                     429,
                     "UPLOAD_RATE_LIMITED",
                     "上传次数过多，请稍后再试",
                 )
+                return
 
         # Access token for API routes (except public)
         if self.settings.access_token and self._needs_auth(path):
-            provided = extract_access_token(request)
+            headers = Headers(scope=scope)
+            provided = extract_access_token_from_headers(headers)
             if not token_ok(provided, self.settings.access_token):
-                return self._json(
+                await self._send_json(
+                    scope,
+                    receive,
+                    send,
                     401,
                     "AUTH_REQUIRED",
                     "需要访问密码",
-                    headers={"WWW-Authenticate": "Bearer"},
+                    extra_headers={"WWW-Authenticate": "Bearer"},
                 )
+                return
 
-        response = await call_next(request)
-        for k, v in SECURITY_HEADERS.items():
-            response.headers.setdefault(k, v)
-        # Avoid caching sensitive API responses
-        if path.startswith("/api/"):
-            response.headers.setdefault("Cache-Control", "no-store")
-        return response
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for k, v in SECURITY_HEADERS.items():
+                    if k not in headers:
+                        headers[k] = v
+                if path.startswith("/api/") and "cache-control" not in headers:
+                    headers["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
     def _needs_auth(self, path: str) -> bool:
         if not path.startswith("/api/"):
@@ -184,16 +249,36 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 return False
         return True
 
-    @staticmethod
-    def _json(
+    async def _send_json(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
         status: int,
         code: str,
         message: str,
         *,
-        headers: dict[str, str] | None = None,
-    ) -> JSONResponse:
-        return JSONResponse(
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        # Drain request body so clients/proxies do not hang on unread payload
+        more = True
+        while more:
+            msg = await receive()
+            if msg["type"] != "http.request":
+                break
+            more = bool(msg.get("more_body", False))
+
+        response = JSONResponse(
             status_code=status,
             content={"detail": message, "code": code},
-            headers=headers,
+            headers=extra_headers,
         )
+        for k, v in SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        if (scope.get("path") or "").startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+
+        async def _empty_receive() -> Message:
+            return {"type": "http.disconnect"}
+
+        await response(scope, _empty_receive, send)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -151,8 +149,9 @@ async def init_chunk_upload(
     )
 
 
-@router.put(
+@router.api_route(
     "/uploads/{upload_id}/chunks/{chunk_index}",
+    methods=["PUT", "POST"],
     response_model=ChunkUploadPartResponse,
 )
 async def upload_chunk(
@@ -162,14 +161,23 @@ async def upload_chunk(
     service: JobService = Depends(get_job_service),
     settings: Settings = Depends(get_app_settings),
 ):
-    """Upload one binary part (raw body). No captcha re-check."""
+    """
+    Upload one binary part (raw body). No captcha re-check.
+
+    Accepts PUT or POST. Body is streamed to disk (not fully buffered in RAM)
+    so multi-hundred-MB packages do not stall the event loop / proxies.
+    """
     if not settings.chunked_upload_enabled:
         return _disabled_chunk_response()
     if chunk_index < 0 or chunk_index > 100_000:
         raise HTTPException(status_code=400, detail="无效的分片序号")
-    body = await request.body()
+
+    # Stream request body into a temp buffer file-like without await request.body()
+    # (full buffering of 16MB+ parts has hung under reverse proxies / CF Tunnel).
     try:
-        session = service.save_chunk(upload_id, chunk_index, BytesIO(body))
+        session = await _save_chunk_streaming(
+            service, upload_id, chunk_index, request
+        )
     except ChunkUploadError as exc:
         return _chunk_http_error(exc)
     return ChunkUploadPartResponse(
@@ -178,6 +186,50 @@ async def upload_chunk(
         received_chunks=len(session.received_indexes),
         total_chunks=session.total_chunks,
     )
+
+
+async def _save_chunk_streaming(
+    service: JobService,
+    upload_id: str,
+    chunk_index: int,
+    request: Request,
+):
+    """
+    Stream the request body to a temp file, then persist via JobService off the
+    event loop (sync disk IO in a thread pool).
+    """
+    import tempfile
+    from pathlib import Path
+
+    from starlette.concurrency import run_in_threadpool
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".part")
+    tmp_path = Path(tmp.name)
+    try:
+        written = 0
+        # Hard ceiling slightly above max configured part (90 MB) + slack
+        hard_cap = max(service.settings.chunk_size_bytes * 2, 100 * 1024 * 1024)
+        async for piece in request.stream():
+            if not piece:
+                continue
+            written += len(piece)
+            if written > hard_cap:
+                raise ChunkUploadError("分片过大")
+            tmp.write(piece)
+        tmp.flush()
+        tmp.close()
+
+        def _persist():
+            with tmp_path.open("rb") as f:
+                return service.save_chunk(upload_id, chunk_index, f)
+
+        return await run_in_threadpool(_persist)
+    finally:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+        tmp_path.unlink(missing_ok=True)
 
 
 @router.post(

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
@@ -19,9 +20,19 @@ from dicomflow.tasks.cleanup import CleanupScheduler
 
 logger = logging.getLogger(__name__)
 
+# Tell browsers AND Cloudflare edge not to sticky-cache SPA assets.
+# Plain Cache-Control:no-cache is often still edge-cached by CF for hours.
+_SPA_NO_STORE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "CDN-Cache-Control": "no-store",
+    "Cloudflare-CDN-Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 class _SpaStaticFiles(StaticFiles):
-    """StaticFiles with no-cache for HTML/JS/CSS so UI deploys are not sticky."""
+    """StaticFiles with no-store so Cloudflare edge cannot pin stale app.js."""
 
     def file_response(self, full_path, stat_result, scope, status_code: int = 200) -> Response:  # noqa: ANN001
         response = super().file_response(full_path, stat_result, scope, status_code=status_code)
@@ -33,9 +44,22 @@ class _SpaStaticFiles(StaticFiles):
             or "javascript" in ctype
             or "text/css" in ctype
         ):
-            response.headers["Cache-Control"] = "no-cache, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
+            for k, v in _SPA_NO_STORE.items():
+                response.headers[k] = v
         return response
+
+
+def _versioned_index_html(web_dir: Path) -> str:
+    """
+    Rewrite asset URLs with ?v={version} so CF/browser cache keys change every release.
+    Without this, edge may keep serving an old app.js that still uses PUT + 16MB parts.
+    """
+    path = web_dir / "index.html"
+    text = path.read_text(encoding="utf-8")
+    ver = __version__
+    text = text.replace('href="/styles.css"', f'href="/styles.css?v={ver}"')
+    text = text.replace('src="/app.js"', f'src="/app.js?v={ver}"')
+    return text
 
 
 def create_app() -> FastAPI:
@@ -96,14 +120,22 @@ def create_app() -> FastAPI:
 
     web_dir = Path(settings.web_dir)
     if web_dir.is_dir():
-        # no-cache on SPA assets so deploys (chunked upload JS etc.) take effect without
-        # users being stuck on a stale app.js that still uses large PUT parts.
+        # Version-busted index BEFORE static mount — changes CF cache key every release.
+        @app.get("/", include_in_schema=False)
+        @app.get("/index.html", include_in_schema=False)
+        def spa_index() -> HTMLResponse:
+            return HTMLResponse(
+                content=_versioned_index_html(web_dir),
+                headers=dict(_SPA_NO_STORE),
+            )
+
+        # Remaining static assets (app.js, css, icons). html=False: / handled above.
         app.mount(
             "/",
-            _SpaStaticFiles(directory=str(web_dir), html=True),
+            _SpaStaticFiles(directory=str(web_dir), html=False),
             name="web",
         )
-        logger.info("Serving web UI from %s", web_dir)
+        logger.info("Serving web UI from %s (asset bust v=%s)", web_dir, __version__)
     else:
         logger.warning("Web UI directory not found: %s", web_dir)
 

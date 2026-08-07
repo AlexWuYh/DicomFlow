@@ -32,6 +32,8 @@ def bootstrap(settings: Settings = Depends(get_app_settings)):
         "chunk_size_mb": int(settings.chunk_size_mb),
         # Bytes kept for SPA math / progress (derived from chunk_size_mb)
         "chunk_size_bytes": int(settings.chunk_size_bytes),
+        # Progress: SPA prefers SSE (GET /jobs/{id}/events); poll is fallback
+        "progress_sse": True,
     }
 
 

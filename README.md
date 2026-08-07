@@ -136,6 +136,7 @@ Runtime data (gitignored): `data/` (`dicomflow.db`, uploads, outputs)
 | `DICOMFLOW_MAX_UPLOAD_BYTES` | 1 GiB | Upload size limit |
 | `DICOMFLOW_CHUNKED_UPLOAD_ENABLED` | `false` | Multi-part upload (enable behind Cloudflare Tunnel) |
 | `DICOMFLOW_CHUNK_SIZE_MB` | `4` | Part size in MB when chunked is on (1–90; lower if CF 524) |
+| Progress transport | SSE | `GET /api/v1/jobs/{id}/events` (poll fallback) |
 | `DICOMFLOW_JOB_TTL_HOURS` | `24` | Auto-cleanup TTL |
 | `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | Enable only behind a trusted reverse proxy |
 | `DICOMFLOW_ALLOWED_HOSTS` | `*` | Set to your domain in production |

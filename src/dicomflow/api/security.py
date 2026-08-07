@@ -6,6 +6,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from typing import Callable
+from urllib.parse import parse_qs
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
@@ -129,6 +130,28 @@ def extract_access_token_from_headers(headers: Headers) -> str | None:
     return None
 
 
+def extract_access_token_from_scope(scope: Scope, headers: Headers) -> str | None:
+    """
+    Header / cookie first; query `access_token` or `token` for EventSource
+    (browsers cannot set custom headers on SSE).
+    """
+    tok = extract_access_token_from_headers(headers)
+    if tok:
+        return tok
+    raw = scope.get("query_string") or b""
+    if not raw:
+        return None
+    try:
+        qs = parse_qs(raw.decode("latin-1"), keep_blank_values=False)
+    except Exception:
+        return None
+    for key in ("access_token", "token"):
+        vals = qs.get(key)
+        if vals and vals[0]:
+            return vals[0].strip() or None
+    return None
+
+
 def token_ok(provided: str | None, expected: str) -> bool:
     if not provided:
         return False
@@ -236,7 +259,7 @@ class SecurityMiddleware:
         # Access token for API routes (except public)
         if self.settings.access_token and self._needs_auth(path):
             headers = Headers(scope=scope)
-            provided = extract_access_token_from_headers(headers)
+            provided = extract_access_token_from_scope(scope, headers)
             if not token_ok(provided, self.settings.access_token):
                 await self._send_json(
                     scope,

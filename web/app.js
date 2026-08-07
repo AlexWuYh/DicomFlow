@@ -426,7 +426,8 @@
     if (status === 524 || status === 504) {
       return {
         code: code || "GATEWAY_TIMEOUT",
-        detail: "上传超时（网关等待过久）。大文件请启用分片上传后重试。",
+        detail:
+          "上传超时（Cloudflare 约 100 秒限制）。请把服务端 DICOMFLOW_CHUNK_SIZE_MB 设为 2 或 4，重启后再传；并强制刷新页面以免使用旧前端。",
       };
     }
     if (status === 502 || status === 503) {
@@ -468,7 +469,7 @@
     outputFormat: null,
     /** From bootstrap: use multi-part when true (Cloudflare-friendly). */
     chunkedUploadEnabled: false,
-    chunkSizeBytes: 16 * 1024 * 1024,
+    chunkSizeBytes: 4 * 1024 * 1024,
     /** Abort token for in-flight chunked upload */
     uploadGeneration: 0,
   };
@@ -673,8 +674,8 @@
   }
 
   /**
-   * Multi-part upload: init → PUT parts → complete.
-   * Each part is small enough for Cloudflare Free (~100MB body + ~100s timeout).
+   * Multi-part upload: init → POST parts → complete.
+   * Part size comes from bootstrap (default 4MB) to finish each request under CF ~100s.
    */
   async function startChunkedUpload(file, gen) {
     const chunkSize = Math.max(64 * 1024, state.chunkSizeBytes || 8 * 1024 * 1024);

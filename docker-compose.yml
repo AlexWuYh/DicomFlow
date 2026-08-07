@@ -37,7 +37,8 @@ services:
       DICOMFLOW_TRUST_X_FORWARDED_FOR: "false"
       # Cloudflare Tunnel / 公网反代建议 true（绕过 ~100MB 单请求体限制）
       DICOMFLOW_CHUNKED_UPLOAD_ENABLED: "${DICOMFLOW_CHUNKED_UPLOAD_ENABLED:-false}"
-      DICOMFLOW_CHUNK_SIZE_MB: "${DICOMFLOW_CHUNK_SIZE_MB:-16}"
+      # 4MB/片：兼顾 CF Free ~100s 超时；上行慢时改为 2
+      DICOMFLOW_CHUNK_SIZE_MB: "${DICOMFLOW_CHUNK_SIZE_MB:-4}"
       DICOMFLOW_MAX_UPLOAD_CHUNKS: "${DICOMFLOW_MAX_UPLOAD_CHUNKS:-512}"
     volumes:
       # 任务上传/解压/输出持久化（不依赖宿主机源码目录）

@@ -59,8 +59,9 @@ class Settings(BaseSettings):
     # Chunked upload (Cloudflare Tunnel / reverse-proxy body limits ~100 MiB)
     # Off by default; enable for public CF Zero Trust so large packages can pass.
     chunked_upload_enabled: bool = False
-    # Per-part size in megabytes (default 16). Keep well under proxy caps (~100MB on CF Free).
-    chunk_size_mb: int = 16
+    # Per-part size in megabytes. Default 4: stays under CF Free ~100s proxy timeout on
+    # typical home/office uplinks; raise (e.g. 8–16) only on fast LAN or Enterprise CF.
+    chunk_size_mb: int = 4
     # Soft cap on number of parts (also bounded by max_upload_bytes / chunk_size)
     max_upload_chunks: int = 512
 
@@ -119,11 +120,11 @@ class Settings(BaseSettings):
     def coerce_chunk_size_mb(cls, v):  # noqa: ANN001
         """Accept int/float/str; clamp to a practical range (1–90 MB)."""
         if v is None or v == "":
-            return 16
+            return 4
         try:
             n = int(float(v))
         except (TypeError, ValueError):
-            return 16
+            return 4
         # 1 MB min; 90 MB max stays under typical Cloudflare Free ~100 MB body limit
         return max(1, min(n, 90))
 

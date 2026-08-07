@@ -18,17 +18,23 @@
 ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.12-slim-bookworm
 FROM ${PYTHON_IMAGE}
 
-# ── 国内 pip 源（清华 TUNA）────────────────────────────────
-# 也可构建时覆盖：--build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+# ── 国内 pip 源（默认阿里云；清华部分环境会 403）────────────
+# 也可：--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+#       --build-arg PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
+# 备用源（主源失败时 pip 会再试 extra-index）
+ARG PIP_EXTRA_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL} \
     PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=60 \
+    PIP_RETRIES=5 \
     DICOMFLOW_HOST=0.0.0.0 \
     DICOMFLOW_PORT=8765 \
     DICOMFLOW_DATA_DIR=/data \
@@ -93,10 +99,27 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY web ./web
 
-# pip 使用 ENV 中的国内 index（无需再写 -i，便于缓存层一致）
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir .
-
+# 写入 pip.conf（trusted-host 可含多个域名）
+# 注意：不要 pip install --upgrade pip —— 镜像源对 pip 自身 wheel 常 403，
+# 基础镜像自带的 pip 已足够安装本项目。
+RUN set -eux; \
+    mkdir -p /etc; \
+    printf '%s\n' \
+      '[global]' \
+      "index-url = ${PIP_INDEX_URL}" \
+      "extra-index-url = ${PIP_EXTRA_INDEX_URL}" \
+      'timeout = 60' \
+      'retries = 5' \
+      'disable-pip-version-check = true' \
+      '' \
+      '[install]' \
+      'trusted-host = mirrors.aliyun.com' \
+      '               mirrors.cloud.tencent.com' \
+      '               pypi.tuna.tsinghua.edu.cn' \
+      '               files.pythonhosted.org' \
+      > /etc/pip.conf; \
+    pip --version; \
+    pip install --no-cache-dir .
 RUN mkdir -p /data/uploads /data/work /data/outputs \
     && useradd --create-home --shell /bin/bash dicomflow \
     && chown -R dicomflow:dicomflow /data /app

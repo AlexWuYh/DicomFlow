@@ -18,7 +18,8 @@ services:
       dockerfile: Dockerfile.cn
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-docker.m.daocloud.io/library/python:3.12-slim-bookworm}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
-        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-mirrors.aliyun.com}
+        PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     image: ${DICOMFLOW_IMAGE:-dicomflow:local-cn}
     pull_policy: never

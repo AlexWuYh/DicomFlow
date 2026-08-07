@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f8fafc" />
-    <meta name="description" content="DicomFlow — 将医院 DICOM 压缩包转换为 MP4 / GIF，方便医生查阅" />
-    <title>DicomFlow · 片子转换</title>
+    <meta name="description" content="DicomFlow — 把医院给的专业影像，转成手机、电脑都能直接打开的视频或动图" />
+    <title>DicomFlow · 专业影像随手看</title>
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -58,7 +58,7 @@
           </span>
           <span class="brand-copy">
             <span class="brand-name">DicomFlow</span>
-            <span class="brand-tag">片子转换</span>
+            <span class="brand-tag">影像随手看</span>
           </span>
         </a>
 
@@ -80,15 +80,15 @@
     <main id="main" class="page">
       <section class="hero reveal">
         <h1>
-          医院片子一键转成<br />
-          <span class="grad-text">手机也能看的视频</span>
+          医院给你的专业影像<br />
+          <span class="grad-text">变成任何设备都能打开</span>
         </h1>
         <p class="hero-lead">
-          把医院导出的 CT / MRI 压缩包，转换成普通播放器就能打开的 MP4 或 GIF，发给医生查阅更方便。
+          光盘、U 盘里的 CT / MRI 压缩包，不必再装专用软件。转成手机、电脑都能直接播放的 MP4 或 GIF，会诊沟通、家属转存都更省事。
         </p>
         <div class="feature-row" aria-label="主要功能">
-          <div class="feature-chip">支持 zip / rar</div>
-          <div class="feature-chip">可选高清输出</div>
+          <div class="feature-chip">医院压缩包即可</div>
+          <div class="feature-chip">手机电脑都能看</div>
           <div class="feature-chip">在线预览下载</div>
           <div class="feature-chip">结果保留 24 小时</div>
         </div>
@@ -99,8 +99,8 @@
         <div class="card-top">
           <div class="step-badge">1</div>
           <div class="card-titles">
-            <h2 id="h-upload">上传片子压缩包</h2>
-            <p>选择医院给的压缩文件（zip、rar 等）</p>
+            <h2 id="h-upload">上传医院给的压缩包</h2>
+            <p>通常是检查科室导出的 zip / rar 等文件</p>
           </div>
           <span class="status-pill" id="upload-status-badge" data-state="idle">待上传</span>
         </div>
@@ -137,7 +137,7 @@
               </svg>
             </div>
             <p class="drop-title" id="drop-label">拖拽文件到这里，或点击选择</p>
-            <p class="drop-hint" id="drop-hint">支持较大的检查压缩包</p>
+            <p class="drop-hint" id="drop-hint">支持较大的影像压缩包</p>
           </div>
         </div>
 
@@ -157,7 +157,7 @@
           <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="上传进度" id="upload-progress-wrap">
             <div class="fill fill-up" id="upload-progress-bar"></div>
           </div>
-          <p class="meter-msg" id="upload-msg">请先选择要转换的文件</p>
+          <p class="meter-msg" id="upload-msg">请先选择医院给的压缩包</p>
         </div>
       </section>
 
@@ -166,8 +166,8 @@
         <div class="card-top">
           <div class="step-badge">2</div>
           <div class="card-titles">
-            <h2 id="h-convert">设置并开始转换</h2>
-            <p>按需要调整格式与清晰度后点击转换</p>
+            <h2 id="h-convert">选好格式，开始转换</h2>
+            <p>转成日常设备都能打开的视频或动图</p>
           </div>
         </div>
 
@@ -175,15 +175,15 @@
           <label class="field">
             <span class="lab">输出格式</span>
             <select id="format" class="ctl">
-              <option value="mp4" selected>MP4 视频（推荐）</option>
-              <option value="gif">GIF 动图</option>
+              <option value="mp4" selected>MP4 视频（推荐，兼容最好）</option>
+              <option value="gif">GIF 动图（方便聊天分享）</option>
             </select>
           </label>
           <label class="field">
             <span class="lab">清晰度</span>
             <select id="quality" class="ctl">
-              <option value="high" selected>高清（给医生看）</option>
-              <option value="medium">标准（文件更小）</option>
+              <option value="high" selected>高清（会诊、细看更合适）</option>
+              <option value="medium">标准（体积更小）</option>
               <option value="low">流畅（快速预览）</option>
             </select>
           </label>
@@ -195,7 +195,7 @@
             <input id="merge" type="checkbox" />
             <span>
               <strong>合并成一个文件</strong>
-              <em>多个检查序列拼成一条视频，方便一次发给对方</em>
+              <em>多段影像拼成一条，一次发给对方更方便</em>
             </span>
           </label>
         </div>
@@ -205,7 +205,7 @@
             <span class="btn-label">开始转换</span>
             <span class="btn-spinner" aria-hidden="true"></span>
           </button>
-          <p class="actions-hint" id="convert-hint">请先上传文件</p>
+          <p class="actions-hint" id="convert-hint">请先上传医院给的压缩包</p>
         </div>
 
         <div class="meter">
@@ -229,7 +229,7 @@
           <div class="step-badge done">✓</div>
           <div class="card-titles">
             <h2 id="h-result">预览并下载</h2>
-            <p>可先在线查看，再下载保存或转发给医生</p>
+            <p>本页即可查看，也可下载到手机、电脑随时打开</p>
           </div>
           <button type="button" class="btn btn-secondary" id="download-btn">下载全部结果</button>
         </div>
@@ -241,7 +241,7 @@
             <img id="preview-image" class="player-media" alt="" hidden />
           </div>
           <div class="result-side">
-            <h3>转换结果</h3>
+            <h3>可打开的文件</h3>
             <ul class="file-list" id="file-list" role="listbox" aria-label="转换结果列表"></ul>
           </div>
         </div>
@@ -252,30 +252,30 @@
         <div class="tips-grid">
           <div class="tip-item">
             <span class="tip-num" aria-hidden="true">1</span>
-            <div>
-              <strong>怎么用</strong>
-              <p>上传医院导出的压缩包 → 选择格式与清晰度 → 转换完成后下载，用微信等方式发给医生即可。</p>
+            <div class="tip-body">
+              <h3 class="tip-heading">怎么用</h3>
+              <p>上传医院给的压缩包，选择输出格式，转换后即可预览或下载。微信、相册、电脑播放器都能打开。</p>
             </div>
           </div>
           <div class="tip-item">
             <span class="tip-num" aria-hidden="true">2</span>
-            <div>
-              <strong>输出说明</strong>
-              <p>默认每个检查序列单独一个文件；勾选「合并」后会合成一个文件，方便一次发送。</p>
+            <div class="tip-body">
+              <h3 class="tip-heading">输出说明</h3>
+              <p>默认按检查序列各出一份；勾选「合并」会合成一个文件，方便一次发送。</p>
             </div>
           </div>
           <div class="tip-item">
             <span class="tip-num" aria-hidden="true">3</span>
-            <div>
-              <strong>请及时下载</strong>
-              <p>转换结果仅保留 <strong>24 小时</strong>，过期会自动删除，请尽快保存到手机或电脑。</p>
+            <div class="tip-body">
+              <h3 class="tip-heading">请及时下载</h3>
+              <p>结果仅保留 <span class="tip-em">24 小时</span>，过期自动删除，请尽快保存到手机或电脑。</p>
             </div>
           </div>
           <div class="tip-item">
             <span class="tip-num" aria-hidden="true">4</span>
-            <div>
-              <strong>温馨提示</strong>
-              <p>本工具仅便于查阅与沟通，不能替代医院专业阅片设备，不作诊断依据。</p>
+            <div class="tip-body">
+              <h3 class="tip-heading">温馨提示</h3>
+              <p>便于查阅与沟通，不能替代医院专业阅片设备，不作诊断依据。</p>
             </div>
           </div>
         </div>
@@ -309,7 +309,7 @@
           <span>开源许可</span>
         </a>
         <span class="dot" aria-hidden="true"></span>
-        <span class="muted">仅供查阅与沟通，不作诊断依据</span>
+        <span class="muted">便于沟通查阅，不作诊断依据</span>
       </div>
     </footer>
 

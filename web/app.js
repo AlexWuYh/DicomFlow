@@ -244,15 +244,15 @@
           : "拖拽文件到这里，或点击选择";
       }
       if (dropHint && !state.file) {
-        dropHint.textContent = "支持较大的检查压缩包";
+        dropHint.textContent = "支持较大的影像压缩包";
       }
       if (uploadBadge && uploadBadge.dataset.state === "idle") {
         setUploadBadge("idle", "待上传");
       }
       if (uploadMsg && !state.uploading && !state.uploadId && !state.file) {
         uploadMsg.textContent = captchaState.enabled
-          ? "验证已通过，请选择要转换的文件"
-          : "请先选择要转换的文件";
+          ? "验证已通过，请选择医院给的压缩包"
+          : "请先选择医院给的压缩包";
       }
     }
   }
@@ -510,10 +510,10 @@
     convertHint.textContent = state.converting
       ? "正在转换，请稍候…"
       : ready
-        ? "已选好文件，可以开始转换"
+        ? "文件已就绪，可以开始转换"
         : state.uploading
           ? "上传完成后即可转换"
-          : "请先上传文件";
+          : "请先上传医院给的压缩包";
   }
 
   function clearPreviewMedia() {
@@ -1363,7 +1363,7 @@
     fileChip.hidden = true;
     setBar(uploadBar, uploadWrap, uploadPct, 0);
     setUploadBadge("idle", "待上传");
-    uploadMsg.textContent = "请先选择要转换的文件";
+    uploadMsg.textContent = "请先选择医院给的压缩包";
     resultPanel.hidden = true;
     clearPreviewMedia();
     setError("");

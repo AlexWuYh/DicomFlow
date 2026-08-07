@@ -23,6 +23,8 @@ PUBLIC_PATH_PREFIXES = (
 
 # Multi-part chunk body: higher RPM so large packages are not mid-stream blocked
 _CHUNK_PATH_RE = re.compile(r"^/api/v1/uploads/[^/]+/chunks/\d+$")
+# Job status polling (SPA hits this every ~1–2s during convert)
+_JOB_STATUS_RE = re.compile(r"^/api/v1/jobs/[a-zA-Z0-9]+$")
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -161,8 +163,11 @@ class SecurityMiddleware:
             "PUT",
             "POST",
         )
+        # GET /api/v1/jobs/{id} only — not /download or /files/*
+        is_job_poll = method == "GET" and bool(_JOB_STATUS_RE.match(path_norm))
 
-        # Global RPM (chunk parts use a higher dedicated budget)
+        # Rate budgets: chunks and job polls must not share the tiny global RPM
+        # (SPA polls ~1/s during convert; 60 RPM global would 429 mid-job).
         if is_chunk_part:
             if not _rate_limiter.allow(
                 f"chunk_rpm:{ip}",
@@ -176,6 +181,21 @@ class SecurityMiddleware:
                     429,
                     "RATE_LIMITED",
                     "分片上传过于频繁，请稍后再试",
+                )
+                return
+        elif is_job_poll:
+            if not _rate_limiter.allow(
+                f"job_poll_rpm:{ip}",
+                limit=max(1, self.settings.rate_limit_job_poll_rpm),
+                window_seconds=60.0,
+            ):
+                await self._send_json(
+                    scope,
+                    receive,
+                    send,
+                    429,
+                    "RATE_LIMITED",
+                    "进度查询过于频繁，请稍后再试",
                 )
                 return
         elif not _rate_limiter.allow(

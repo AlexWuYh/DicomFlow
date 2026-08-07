@@ -78,8 +78,8 @@ docker compose up -d
 
 ```bash
 export DICOMFLOW_CHUNKED_UPLOAD_ENABLED=true
-# 可选：默认 16MB/片（范围 1–90）
-# export DICOMFLOW_CHUNK_SIZE_MB=16
+# 可选：默认 4MB/片（范围 1–90）。若 Cloudflare 返回 524，改为 2
+# export DICOMFLOW_CHUNK_SIZE_MB=4
 docker compose up -d
 ```
 
@@ -135,7 +135,7 @@ docker-compose.yml
 | `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI 文档开关 |
 | `DICOMFLOW_MAX_UPLOAD_BYTES` | 1 GiB | 上传上限 |
 | `DICOMFLOW_CHUNKED_UPLOAD_ENABLED` | `false` | 分片上传（Cloudflare Tunnel 公网建议开启） |
-| `DICOMFLOW_CHUNK_SIZE_MB` | `16` | 开启分片时的每片大小（单位 MB，范围 1–90） |
+| `DICOMFLOW_CHUNK_SIZE_MB` | `4` | 开启分片时的每片大小（MB，1–90；CF 524 时改小） |
 | `DICOMFLOW_JOB_TTL_HOURS` | `24` | 自动清理 |
 | `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | 仅可信反代后开启 |
 | `DICOMFLOW_ALLOWED_HOSTS` | `*` | 生产改为域名 |

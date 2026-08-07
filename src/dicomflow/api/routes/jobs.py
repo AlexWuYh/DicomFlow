@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.requests import ClientDisconnect
 
 from dicomflow.api.captcha import CaptchaError, verify_turnstile
 from dicomflow.api.deps import get_app_settings, get_job_service
@@ -172,11 +173,22 @@ async def upload_chunk(
     if chunk_index < 0 or chunk_index > 100_000:
         raise HTTPException(status_code=400, detail="无效的分片序号")
 
-    # Stream request body into a temp buffer file-like without await request.body()
-    # (full buffering of 16MB+ parts has hung under reverse proxies / CF Tunnel).
+    # Stream body to disk; full await request.body() is avoided under CF Tunnel.
     try:
         session = await _save_chunk_streaming(
             service, upload_id, chunk_index, request
+        )
+    except ClientDisconnect:
+        # Cloudflare 524 / client abort while body is still streaming in
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    "上传中断（常见于 Cloudflare 约 100 秒超时）。"
+                    "请将 DICOMFLOW_CHUNK_SIZE_MB 设为 2 或 4 后重启服务再试。"
+                ),
+                "code": "CHUNK_UPLOAD_INTERRUPTED",
+            },
         )
     except ChunkUploadError as exc:
         return _chunk_http_error(exc)
@@ -209,13 +221,16 @@ async def _save_chunk_streaming(
         written = 0
         # Hard ceiling slightly above max configured part (90 MB) + slack
         hard_cap = max(service.settings.chunk_size_bytes * 2, 100 * 1024 * 1024)
-        async for piece in request.stream():
-            if not piece:
-                continue
-            written += len(piece)
-            if written > hard_cap:
-                raise ChunkUploadError("分片过大")
-            tmp.write(piece)
+        try:
+            async for piece in request.stream():
+                if not piece:
+                    continue
+                written += len(piece)
+                if written > hard_cap:
+                    raise ChunkUploadError("分片过大")
+                tmp.write(piece)
+        except ClientDisconnect:
+            raise
         tmp.flush()
         tmp.close()
 

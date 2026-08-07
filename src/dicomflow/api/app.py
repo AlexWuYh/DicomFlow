@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import Response
 
 from dicomflow import __version__
 from dicomflow.api.deps import get_job_service
@@ -17,6 +18,24 @@ from dicomflow.core.config import get_settings
 from dicomflow.tasks.cleanup import CleanupScheduler
 
 logger = logging.getLogger(__name__)
+
+
+class _SpaStaticFiles(StaticFiles):
+    """StaticFiles with no-cache for HTML/JS/CSS so UI deploys are not sticky."""
+
+    def file_response(self, full_path, stat_result, scope, status_code: int = 200) -> Response:  # noqa: ANN001
+        response = super().file_response(full_path, stat_result, scope, status_code=status_code)
+        ctype = (response.headers.get("content-type") or "").lower()
+        lower = str(full_path).lower()
+        if (
+            lower.endswith((".html", ".js", ".css", ".mjs", ".map"))
+            or "text/html" in ctype
+            or "javascript" in ctype
+            or "text/css" in ctype
+        ):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
 
 def create_app() -> FastAPI:
@@ -77,7 +96,13 @@ def create_app() -> FastAPI:
 
     web_dir = Path(settings.web_dir)
     if web_dir.is_dir():
-        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
+        # no-cache on SPA assets so deploys (chunked upload JS etc.) take effect without
+        # users being stuck on a stale app.js that still uses large PUT parts.
+        app.mount(
+            "/",
+            _SpaStaticFiles(directory=str(web_dir), html=True),
+            name="web",
+        )
         logger.info("Serving web UI from %s", web_dir)
     else:
         logger.warning("Web UI directory not found: %s", web_dir)

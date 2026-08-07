@@ -78,8 +78,8 @@ Behind **Cloudflare Tunnel / Zero Trust**, single-request uploads are often limi
 
 ```bash
 export DICOMFLOW_CHUNKED_UPLOAD_ENABLED=true
-# optional, default 16 MB per part (range 1–90)
-# export DICOMFLOW_CHUNK_SIZE_MB=16
+# optional, default 4 MB per part (range 1–90). Use 2 if you hit Cloudflare 524 timeouts.
+# export DICOMFLOW_CHUNK_SIZE_MB=4
 docker compose up -d
 ```
 
@@ -135,7 +135,7 @@ Runtime data (gitignored): `data/` (`dicomflow.db`, uploads, outputs)
 | `DICOMFLOW_ENABLE_DOCS` | `false` | OpenAPI docs |
 | `DICOMFLOW_MAX_UPLOAD_BYTES` | 1 GiB | Upload size limit |
 | `DICOMFLOW_CHUNKED_UPLOAD_ENABLED` | `false` | Multi-part upload (enable behind Cloudflare Tunnel) |
-| `DICOMFLOW_CHUNK_SIZE_MB` | `16` | Part size in MB when chunked is on (1–90) |
+| `DICOMFLOW_CHUNK_SIZE_MB` | `4` | Part size in MB when chunked is on (1–90; lower if CF 524) |
 | `DICOMFLOW_JOB_TTL_HOURS` | `24` | Auto-cleanup TTL |
 | `DICOMFLOW_TRUST_X_FORWARDED_FOR` | `false` | Enable only behind a trusted reverse proxy |
 | `DICOMFLOW_ALLOWED_HOSTS` | `*` | Set to your domain in production |

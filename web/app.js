@@ -750,29 +750,34 @@
       const serverTotal = session.total_chunks || totalChunks;
       let uploadedBytes = 0;
 
+      const paintProgress = (loadedInPart, partIndex) => {
+        if (gen !== state.uploadGeneration) return;
+        const overall = Math.min(file.size, uploadedBytes + (loadedInPart || 0));
+        const pct = file.size ? (overall / file.size) * 100 : 0;
+        setBar(uploadBar, uploadWrap, uploadPct, pct);
+        uploadMsg.textContent = `分片上传 ${partIndex + 1}/${serverTotal} · ${formatBytes(
+          overall
+        )} / ${formatBytes(file.size)}`;
+      };
+
       for (let i = 0; i < serverTotal; i++) {
         if (gen !== state.uploadGeneration) return;
         const start = i * serverChunk;
         const end = Math.min(file.size, start + serverChunk);
         const blob = file.slice(start, end);
+        // Show next part immediately so the bar never looks "stuck" between requests
+        paintProgress(0, i);
 
         const partOk = await putChunkWithRetry(uploadId, i, blob, {
           gen,
-          onProgress: (loaded) => {
-            if (gen !== state.uploadGeneration) return;
-            const overall = uploadedBytes + loaded;
-            const pct = file.size ? (overall / file.size) * 100 : 0;
-            setBar(uploadBar, uploadWrap, uploadPct, pct);
-            uploadMsg.textContent = `分片上传 ${i + 1}/${serverTotal} · ${formatBytes(
-              Math.min(overall, file.size)
-            )} / ${formatBytes(file.size)}`;
-          },
+          onProgress: (loaded) => paintProgress(loaded, i),
         });
         if (!partOk.ok) {
           fail(partOk.detail || `第 ${i + 1} 片上传失败`);
           return;
         }
         uploadedBytes += blob.size;
+        paintProgress(0, i); // snap to completed part boundary
       }
 
       if (gen !== state.uploadGeneration) return;
@@ -802,6 +807,9 @@
 
   function putChunkWithRetry(uploadId, index, blob, { gen, onProgress, maxAttempts }) {
     const attempts = maxAttempts || 3;
+    // Per-part budget: large enough for slow links, short enough to fail before CF 100s
+    // feels like a silent hang. ~3 min; retries handle transient 502/524.
+    const partTimeoutMs = 180000;
     return new Promise((resolve) => {
       let attempt = 0;
       const run = () => {
@@ -811,15 +819,28 @@
         }
         attempt += 1;
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", `/api/v1/uploads/${uploadId}/chunks/${index}`);
-        xhr.responseType = "json";
-        xhr.timeout = 0;
+        // POST is more reliably handled by reverse proxies than PUT for large bodies
+        xhr.open("POST", `/api/v1/uploads/${uploadId}/chunks/${index}`);
+        xhr.responseType = "text";
+        xhr.timeout = partTimeoutMs;
         const tok = getToken();
         if (tok) xhr.setRequestHeader("X-DicomFlow-Token", tok);
         xhr.setRequestHeader("Content-Type", "application/octet-stream");
 
         xhr.upload.onprogress = (e) => {
-          if (onProgress && e.lengthComputable) onProgress(e.loaded);
+          if (onProgress) {
+            if (e.lengthComputable) onProgress(e.loaded);
+            else if (e.loaded) onProgress(e.loaded);
+          }
+        };
+
+        const parseBody = () => {
+          if (!xhr.responseText) return null;
+          try {
+            return JSON.parse(xhr.responseText);
+          } catch (_) {
+            return null;
+          }
         };
 
         xhr.onload = () => {
@@ -828,6 +849,7 @@
             return;
           }
           if (xhr.status >= 200 && xhr.status < 300) {
+            if (onProgress) onProgress(blob.size);
             resolve({ ok: true });
             return;
           }
@@ -838,18 +860,19 @@
             return;
           }
           // Retry transient gateway errors
-          if ((xhr.status === 502 || xhr.status === 503 || xhr.status === 524) && attempt < attempts) {
-            setTimeout(run, 500 * attempt);
+          if (
+            (xhr.status === 502 || xhr.status === 503 || xhr.status === 524 || xhr.status === 408) &&
+            attempt < attempts
+          ) {
+            setTimeout(run, 800 * attempt);
             return;
           }
-          let body = typeof xhr.response === "object" ? xhr.response : null;
-          if (!body && xhr.responseText) {
-            try {
-              body = JSON.parse(xhr.responseText);
-            } catch (_) {}
-          }
+          const body = parseBody();
           const parsed = parseApiError(xhr.status, body, xhr.responseText || xhr.statusText);
-          resolve({ ok: false, detail: parsed.detail });
+          resolve({
+            ok: false,
+            detail: parsed.detail || `第 ${index + 1} 片失败 (HTTP ${xhr.status})`,
+          });
         };
 
         xhr.onerror = () => {
@@ -858,10 +881,25 @@
             return;
           }
           if (attempt < attempts) {
-            setTimeout(run, 500 * attempt);
+            setTimeout(run, 800 * attempt);
             return;
           }
           resolve({ ok: false, detail: "网络异常，分片上传失败" });
+        };
+
+        xhr.ontimeout = () => {
+          if (gen !== state.uploadGeneration) {
+            resolve({ ok: false, detail: "已取消" });
+            return;
+          }
+          if (attempt < attempts) {
+            setTimeout(run, 800 * attempt);
+            return;
+          }
+          resolve({
+            ok: false,
+            detail: `第 ${index + 1} 片上传超时，请检查网络后重试`,
+          });
         };
 
         xhr.send(blob);

@@ -4,6 +4,10 @@
 
 Convert hospital DICOM archives (**zip / rar**) into **MP4 / GIF** that any phone or desktop player can open — handy for cross-hospital review and sharing.
 
+<p align="center">
+  <img src="docs/images/web-ui.png" alt="DicomFlow web UI — upload hospital archive, convert to MP4/GIF, preview and download" width="920" />
+</p>
+
 ## How to use (web)
 
 1. Open the site (local default: http://127.0.0.1:8765 )

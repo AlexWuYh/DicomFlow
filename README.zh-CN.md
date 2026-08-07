@@ -4,6 +4,10 @@
 
 把医院导出的 DICOM 压缩包（**zip / rar**）转成 **MP4 / GIF**，用手机或电脑自带播放器就能看，方便跨院会诊传阅。
 
+<p align="center">
+  <img src="docs/images/web-ui.png" alt="DicomFlow 网页界面：上传医院压缩包、转换为 MP4/GIF、预览与下载" width="920" />
+</p>
+
 ## 用户怎么用（网站）
 
 1. 打开站点（本地默认 http://127.0.0.1:8765 ）

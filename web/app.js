@@ -466,6 +466,7 @@
     converting: false,
     jobId: null,
     pollTimer: null,
+    eventSource: null,
     outputFormat: null,
     /** From bootstrap: use multi-part when true (Cloudflare-friendly). */
     chunkedUploadEnabled: false,
@@ -545,6 +546,7 @@
       clearTimeout(state.pollTimer);
       state.pollTimer = null;
     }
+    closeJobEventSource();
 
     fileChip.hidden = false;
     fileNameEl.textContent = file.name;
@@ -949,12 +951,17 @@
       const data = await res.json();
       state.jobId = data.job_id;
       processMsg.textContent = "已开始转换…";
-      // Sequential poll (not setInterval) avoids stacking requests and 429 storms
       if (state.pollTimer) {
         clearTimeout(state.pollTimer);
         state.pollTimer = null;
       }
-      await runJobPollLoop(data.job_id);
+      closeJobEventSource();
+      // Prefer SSE push; fall back to polling if EventSource unavailable / fails
+      if (typeof EventSource !== "undefined") {
+        watchJobViaSse(data.job_id);
+      } else {
+        await runJobPollLoop(data.job_id);
+      }
     } catch (e) {
       setError(String(e));
       processMsg.textContent = "转换未能开始，请重试";
@@ -967,12 +974,97 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  function closeJobEventSource() {
+    if (state.eventSource) {
+      try {
+        state.eventSource.close();
+      } catch (_) {}
+      state.eventSource = null;
+    }
+  }
+
   /**
-   * Poll job status until terminal or cancelled.
+   * Server-Sent Events: one connection, server pushes on progress change.
+   * EventSource cannot set X-DicomFlow-Token → pass access_token query when needed.
+   */
+  function watchJobViaSse(jobId) {
+    const tok = getToken();
+    let url = `/api/v1/jobs/${encodeURIComponent(jobId)}/events`;
+    if (tok) {
+      url += `?access_token=${encodeURIComponent(tok)}`;
+    }
+    let es;
+    try {
+      es = new EventSource(url);
+    } catch (e) {
+      runJobPollLoop(jobId);
+      return;
+    }
+    state.eventSource = es;
+    let opened = false;
+    let settled = false;
+
+    const settle = () => {
+      settled = true;
+      closeJobEventSource();
+    };
+
+    es.addEventListener("open", () => {
+      opened = true;
+    });
+
+    const onStatus = (ev) => {
+      if (!state.converting || state.jobId !== jobId) {
+        settle();
+        return;
+      }
+      let data;
+      try {
+        data = JSON.parse(ev.data);
+      } catch (_) {
+        return;
+      }
+      const terminal = applyJobStatus(jobId, data);
+      if (terminal) settle();
+    };
+
+    es.addEventListener("status", onStatus);
+    es.addEventListener("done", (ev) => {
+      onStatus(ev);
+      settle();
+    });
+    es.addEventListener("error", (ev) => {
+      // Named "error" event from server with JSON body
+      if (ev && ev.data) {
+        try {
+          const body = JSON.parse(ev.data);
+          if (body.detail) setError(String(body.detail));
+        } catch (_) {}
+        settle();
+        state.converting = false;
+        updateConvertEnabled();
+        return;
+      }
+    });
+
+    es.onerror = () => {
+      if (settled) return;
+      // Connection error: if never opened, fall back to poll; else retry via poll
+      settle();
+      if (!state.converting || state.jobId !== jobId) return;
+      if (!opened) {
+        processMsg.textContent = "进度推送不可用，改为轮询…";
+      }
+      runJobPollLoop(jobId);
+    };
+  }
+
+  /**
+   * Poll job status until terminal or cancelled (SSE fallback).
    * 429 is retried with backoff — conversion continues server-side.
    */
   async function runJobPollLoop(jobId) {
-    const pollEveryMs = 2000;
+    const pollEveryMs = 2500;
     let rateLimitHits = 0;
     while (state.converting && state.jobId === jobId) {
       try {
@@ -998,16 +1090,8 @@
     }
   }
 
-  /** @returns {Promise<boolean>} true if job reached a terminal status */
-  async function pollJob(jobId) {
-    const res = await apiFetch(`/api/v1/jobs/${jobId}`);
-    if (res.status === 429) {
-      const err = new Error("RATE_LIMITED");
-      err.code = "RATE_LIMITED";
-      throw err;
-    }
-    if (!res.ok) throw new Error("获取进度失败，请刷新后重试");
-    const data = await res.json();
+  /** Apply a job status payload to the UI. @returns {boolean} terminal */
+  function applyJobStatus(jobId, data) {
     const pct = data.progress?.percent ?? 0;
     setBar(processBar, processWrap, processPct, pct);
 
@@ -1052,6 +1136,19 @@
       return true;
     }
     return false;
+  }
+
+  /** @returns {Promise<boolean>} true if job reached a terminal status */
+  async function pollJob(jobId) {
+    const res = await apiFetch(`/api/v1/jobs/${jobId}`);
+    if (res.status === 429) {
+      const err = new Error("RATE_LIMITED");
+      err.code = "RATE_LIMITED";
+      throw err;
+    }
+    if (!res.ok) throw new Error("获取进度失败，请刷新后重试");
+    const data = await res.json();
+    return applyJobStatus(jobId, data);
   }
 
   function isPreviewableForFormat(name, format) {
@@ -1257,6 +1354,11 @@
     state.uploading = false;
     state.outputFormat = null;
     state.converting = false;
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+    closeJobEventSource();
     fileInput.value = "";
     fileChip.hidden = true;
     setBar(uploadBar, uploadWrap, uploadPct, 0);

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import queue
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.requests import ClientDisconnect
 
 from dicomflow.api.captcha import CaptchaError, verify_turnstile
@@ -21,6 +25,7 @@ from dicomflow.core.models import (
     UploadResponse,
 )
 from dicomflow.tasks.job_service import JobService
+from dicomflow.tasks.progress_hub import progress_hub
 
 router = APIRouter()
 
@@ -316,6 +321,89 @@ def get_job(job_id: str, service: JobService = Depends(get_job_service)):
         updated_at=rec.updated_at,
         source_name=rec.source_name,
         upload_id=rec.upload_id,
+    )
+
+
+def _sse_pack(payload: dict, *, event: str = "status") -> str:
+    """Format one SSE message (text/event-stream)."""
+    data = json.dumps(payload, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+@router.get("/jobs/{job_id}/events")
+async def job_events(
+    job_id: str,
+    request: Request,
+    service: JobService = Depends(get_job_service),
+):
+    """
+    Server-Sent Events stream of job status snapshots.
+
+    Preferred over polling: one long-lived connection, push on progress change.
+    Heartbeat comments every ~15s keep reverse proxies (Cloudflare) from idling out.
+    Falls back is client-side: if EventSource fails, SPA uses GET /jobs/{id}.
+    """
+    if not job_id.isalnum() or len(job_id) > 64:
+        raise HTTPException(status_code=404, detail="job not found")
+    rec = service.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    terminal = {"SUCCEEDED", "FAILED"}
+
+    async def event_gen():
+        # Immediate snapshot so UI paints without waiting for next worker tick
+        latest = service.get(job_id)
+        if latest is None:
+            yield _sse_pack(
+                {"detail": "job not found", "code": "NOT_FOUND"},
+                event="error",
+            )
+            return
+        payload = service.status_payload(latest)
+        yield _sse_pack(payload)
+        if payload.get("status") in terminal:
+            yield _sse_pack(payload, event="done")
+            return
+
+        q = progress_hub.subscribe(job_id)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Wait up to 15s for a real progress event (worker thread publishes)
+                    item = await asyncio.to_thread(q.get, True, 15.0)
+                except queue.Empty:
+                    # Heartbeat + soft re-sync from DB (covers missed publishes)
+                    yield ": heartbeat\n\n"
+                    cur = service.get(job_id)
+                    if cur is None:
+                        break
+                    payload = service.status_payload(cur)
+                    yield _sse_pack(payload)
+                    if payload.get("status") in terminal:
+                        yield _sse_pack(payload, event="done")
+                        break
+                    continue
+
+                yield _sse_pack(item)
+                if item.get("status") in terminal:
+                    yield _sse_pack(item, event="done")
+                    break
+        finally:
+            progress_hub.unsubscribe(job_id, q)
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # nginx / some proxies
+            "CDN-Cache-Control": "no-store",
+            "Cloudflare-CDN-Cache-Control": "no-store",
+        },
     )
 
 

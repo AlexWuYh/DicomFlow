@@ -24,6 +24,7 @@ from dicomflow.core.timeutil import as_utc, to_iso, utc_now
 from dicomflow.engine.pipeline import ProgressEvent, convert_dicom_package
 from dicomflow.storage.base import StoragePort
 from dicomflow.tasks.base import QueuePort
+from dicomflow.tasks.progress_hub import progress_hub
 from dicomflow.tasks.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,20 @@ class JobService:
     def get(self, job_id: str) -> JobRecord | None:
         return self.store.get_job(job_id)
 
+    def status_payload(self, rec: JobRecord) -> dict:
+        """JSON-serializable snapshot for REST + SSE (matches JobStatusResponse)."""
+        return {
+            "job_id": rec.job_id,
+            "status": rec.status.value if hasattr(rec.status, "value") else rec.status,
+            "progress": rec.progress.model_dump(mode="json"),
+            "result": rec.result.model_dump(mode="json") if rec.result else None,
+            "error": rec.error.model_dump(mode="json") if rec.error else None,
+            "created_at": rec.created_at.isoformat() if rec.created_at else None,
+            "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+            "source_name": rec.source_name,
+            "upload_id": rec.upload_id,
+        }
+
     def _update(self, job_id: str, **kwargs) -> None:
         rec = self.store.get_job(job_id)
         if rec is None:
@@ -280,7 +295,13 @@ class JobService:
         data = rec.model_dump()
         data.update(kwargs)
         data["updated_at"] = utc_now()
-        self.store.save_job(JobRecord.model_validate(data))
+        updated = JobRecord.model_validate(data)
+        self.store.save_job(updated)
+        # Push to SSE subscribers (no-op if nobody is listening)
+        try:
+            progress_hub.publish(job_id, self.status_payload(updated))
+        except Exception:  # noqa: BLE001
+            logger.debug("progress publish failed for %s", job_id, exc_info=True)
 
     def _on_progress(self, job_id: str, event: ProgressEvent) -> None:
         phase = (

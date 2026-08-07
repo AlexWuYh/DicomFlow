@@ -75,10 +75,12 @@ class Settings(BaseSettings):
     # Security
     enable_docs: bool = False  # never expose Swagger unless explicitly enabled
     access_token: str | None = None  # if set, all /api/* (except health) require it
-    rate_limit_rpm: int = 60  # requests per minute per IP
+    rate_limit_rpm: int = 120  # general API requests per minute per IP
     rate_limit_uploads_per_hour: int = 20
     # Chunk part PUTs use a higher RPM so multi-hundred-MB files are not blocked mid-stream
     rate_limit_chunk_rpm: int = 300
+    # Job status polling (GET /jobs/{id}) — SPA polls every ~2s during convert
+    rate_limit_job_poll_rpm: int = 180
     allowed_hosts: str = "*"  # comma-separated; use domain in production
     cors_origins: str = ""  # empty = no cross-origin; set explicit origins if needed
     # Only enable when a trusted reverse proxy sets X-Forwarded-For

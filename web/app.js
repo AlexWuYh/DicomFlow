@@ -542,7 +542,7 @@
     state.outputFormat = null;
     state.converting = false;
     if (state.pollTimer) {
-      clearInterval(state.pollTimer);
+      clearTimeout(state.pollTimer);
       state.pollTimer = null;
     }
 
@@ -949,17 +949,12 @@
       const data = await res.json();
       state.jobId = data.job_id;
       processMsg.textContent = "已开始转换…";
-      if (state.pollTimer) clearInterval(state.pollTimer);
-      state.pollTimer = setInterval(() => {
-        pollJob(state.jobId).catch((e) => {
-          setError(String(e));
-          clearInterval(state.pollTimer);
-          state.pollTimer = null;
-          state.converting = false;
-          updateConvertEnabled();
-        });
-      }, 1000);
-      await pollJob(state.jobId);
+      // Sequential poll (not setInterval) avoids stacking requests and 429 storms
+      if (state.pollTimer) {
+        clearTimeout(state.pollTimer);
+        state.pollTimer = null;
+      }
+      await runJobPollLoop(data.job_id);
     } catch (e) {
       setError(String(e));
       processMsg.textContent = "转换未能开始，请重试";
@@ -968,8 +963,49 @@
     }
   }
 
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * Poll job status until terminal or cancelled.
+   * 429 is retried with backoff — conversion continues server-side.
+   */
+  async function runJobPollLoop(jobId) {
+    const pollEveryMs = 2000;
+    let rateLimitHits = 0;
+    while (state.converting && state.jobId === jobId) {
+      try {
+        const terminal = await pollJob(jobId);
+        rateLimitHits = 0;
+        if (terminal) return;
+        await sleep(pollEveryMs);
+      } catch (e) {
+        const msg = String(e && e.message ? e.message : e);
+        if (msg.includes("RATE_LIMITED") || msg.includes("429") || msg.includes("过于频繁")) {
+          rateLimitHits += 1;
+          const wait = Math.min(10000, 1500 * rateLimitHits);
+          processMsg.textContent = "查询进度稍频，稍后继续…";
+          await sleep(wait);
+          continue;
+        }
+        setError(msg);
+        state.converting = false;
+        state.pollTimer = null;
+        updateConvertEnabled();
+        return;
+      }
+    }
+  }
+
+  /** @returns {Promise<boolean>} true if job reached a terminal status */
   async function pollJob(jobId) {
     const res = await apiFetch(`/api/v1/jobs/${jobId}`);
+    if (res.status === 429) {
+      const err = new Error("RATE_LIMITED");
+      err.code = "RATE_LIMITED";
+      throw err;
+    }
     if (!res.ok) throw new Error("获取进度失败，请刷新后重试");
     const data = await res.json();
     const pct = data.progress?.percent ?? 0;
@@ -995,23 +1031,17 @@
     }
 
     if (data.status === "SUCCEEDED") {
-      if (state.pollTimer) {
-        clearInterval(state.pollTimer);
-        state.pollTimer = null;
-      }
+      state.pollTimer = null;
       state.converting = false;
       setBar(processBar, processWrap, processPct, 100);
       processMsg.textContent = "转换完成，可以预览或下载";
       updateConvertEnabled();
       showResults(jobId, data.result);
-      return;
+      return true;
     }
 
     if (data.status === "FAILED") {
-      if (state.pollTimer) {
-        clearInterval(state.pollTimer);
-        state.pollTimer = null;
-      }
+      state.pollTimer = null;
       state.converting = false;
       updateConvertEnabled();
       const err = data.error;
@@ -1019,7 +1049,9 @@
       const detail = err?.detail ? `\n${err.detail}` : "";
       setError(`${msg}${detail}`);
       processMsg.textContent = "转换失败";
+      return true;
     }
+    return false;
   }
 
   function isPreviewableForFormat(name, format) {

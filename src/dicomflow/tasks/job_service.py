@@ -304,23 +304,27 @@ class JobService:
             logger.debug("progress publish failed for %s", job_id, exc_info=True)
 
     def _on_progress(self, job_id: str, event: ProgressEvent) -> None:
+        """
+        Mid-flight progress only. Never mark job SUCCEEDED here — the engine
+        emits phase=SUCCEEDED at 100% *before* artifacts/result are attached.
+        Terminal status + result are set exclusively in _run after packaging.
+        """
         phase = (
             JobPhase(event.phase)
             if event.phase in JobPhase.__members__
             else JobPhase.CONVERTING
         )
+        # Map engine "SUCCEEDED" progress tick to PACKAGING so clients do not
+        # treat the job as terminal without a downloadable result.
         if event.phase == "SUCCEEDED":
-            phase = JobPhase.SUCCEEDED
-        status = (
-            JobStatus.SUCCEEDED if phase == JobPhase.SUCCEEDED else JobStatus.RUNNING
-        )
+            phase = JobPhase.PACKAGING
         self._update(
             job_id,
-            status=status,
+            status=JobStatus.RUNNING,
             progress=ProgressInfo(
                 phase=phase,
-                percent=event.percent,
-                message=event.message,
+                percent=min(99, max(0, int(event.percent))),
+                message=event.message or "处理中",
                 series_index=event.series_index,
                 series_total=event.series_total,
                 frame_index=event.frame_index,

@@ -244,15 +244,15 @@
           : "拖拽文件到这里，或点击选择";
       }
       if (dropHint && !state.file) {
-        dropHint.textContent = "支持较大的检查压缩包";
+        dropHint.textContent = "支持较大的影像压缩包";
       }
       if (uploadBadge && uploadBadge.dataset.state === "idle") {
         setUploadBadge("idle", "待上传");
       }
       if (uploadMsg && !state.uploading && !state.uploadId && !state.file) {
         uploadMsg.textContent = captchaState.enabled
-          ? "验证已通过，请选择要转换的文件"
-          : "请先选择要转换的文件";
+          ? "验证已通过，请选择医院给的压缩包"
+          : "请先选择医院给的压缩包";
       }
     }
   }
@@ -510,10 +510,10 @@
     convertHint.textContent = state.converting
       ? "正在转换，请稍候…"
       : ready
-        ? "已选好文件，可以开始转换"
+        ? "文件已就绪，可以开始转换"
         : state.uploading
           ? "上传完成后即可转换"
-          : "请先上传文件";
+          : "请先上传医院给的压缩包";
   }
 
   function clearPreviewMedia() {
@@ -1026,12 +1026,36 @@
       }
       const terminal = applyJobStatus(jobId, data);
       if (terminal) settle();
+      // SUCCEEDED without result → keep listening for the final snapshot
     };
 
     es.addEventListener("status", onStatus);
     es.addEventListener("done", (ev) => {
-      onStatus(ev);
-      settle();
+      if (!state.converting || state.jobId !== jobId) {
+        settle();
+        return;
+      }
+      let data = null;
+      try {
+        data = JSON.parse(ev.data);
+      } catch (_) {}
+      // Prefer payload on the event; if result missing, one REST fetch as safety net
+      const finish = async () => {
+        let terminal = data ? applyJobStatus(jobId, data) : false;
+        if (!terminal && state.converting && state.jobId === jobId) {
+          try {
+            const full = await fetchJobStatus(jobId);
+            terminal = applyJobStatus(jobId, full);
+          } catch (_) {
+            /* fall through to poll */
+          }
+        }
+        settle();
+        if (!terminal && state.converting && state.jobId === jobId) {
+          runJobPollLoop(jobId);
+        }
+      };
+      finish();
     });
     es.addEventListener("error", (ev) => {
       // Named "error" event from server with JSON body
@@ -1049,13 +1073,21 @@
 
     es.onerror = () => {
       if (settled) return;
-      // Connection error: if never opened, fall back to poll; else retry via poll
+      // Connection closed after last event: try one REST fetch before polling loop
       settle();
       if (!state.converting || state.jobId !== jobId) return;
-      if (!opened) {
-        processMsg.textContent = "进度推送不可用，改为轮询…";
-      }
-      runJobPollLoop(jobId);
+      (async () => {
+        try {
+          const full = await fetchJobStatus(jobId);
+          if (applyJobStatus(jobId, full)) return;
+        } catch (_) {}
+        if (!opened) {
+          processMsg.textContent = "进度推送不可用，改为轮询…";
+        }
+        if (state.converting && state.jobId === jobId) {
+          runJobPollLoop(jobId);
+        }
+      })();
     };
   }
 
@@ -1115,6 +1147,11 @@
     }
 
     if (data.status === "SUCCEEDED") {
+      // Engine may briefly report 100% before result is attached — not terminal yet
+      if (!data.result) {
+        processMsg.textContent = "转换完成，正在准备预览…";
+        return false;
+      }
       state.pollTimer = null;
       state.converting = false;
       setBar(processBar, processWrap, processPct, 100);
@@ -1138,8 +1175,8 @@
     return false;
   }
 
-  /** @returns {Promise<boolean>} true if job reached a terminal status */
-  async function pollJob(jobId) {
+  /** Fetch full job JSON (used when SSE ends without result payload). */
+  async function fetchJobStatus(jobId) {
     const res = await apiFetch(`/api/v1/jobs/${jobId}`);
     if (res.status === 429) {
       const err = new Error("RATE_LIMITED");
@@ -1147,7 +1184,12 @@
       throw err;
     }
     if (!res.ok) throw new Error("获取进度失败，请刷新后重试");
-    const data = await res.json();
+    return res.json();
+  }
+
+  /** @returns {Promise<boolean>} true if job reached a terminal status */
+  async function pollJob(jobId) {
+    const data = await fetchJobStatus(jobId);
     return applyJobStatus(jobId, data);
   }
 
@@ -1162,8 +1204,14 @@
   }
 
   function showResults(jobId, result) {
-    if (!result) return;
+    if (!result) {
+      // Should not happen after applyJobStatus guard; keep panel closed
+      return;
+    }
     resultPanel.hidden = false;
+    try {
+      resultPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (_) {}
     clearPreviewMedia();
 
     downloadBtn.onclick = () => {
@@ -1363,7 +1411,7 @@
     fileChip.hidden = true;
     setBar(uploadBar, uploadWrap, uploadPct, 0);
     setUploadBadge("idle", "待上传");
-    uploadMsg.textContent = "请先选择要转换的文件";
+    uploadMsg.textContent = "请先选择医院给的压缩包";
     resultPanel.hidden = true;
     clearPreviewMedia();
     setError("");

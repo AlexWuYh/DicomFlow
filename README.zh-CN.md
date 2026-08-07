@@ -39,9 +39,27 @@ DICOMFLOW_IMAGE=ghcr.io/alexwuyh/dicomflow:0.2.0 docker compose up -d
 若出现 `ghcr.io` **超时**，先解决网络/代理/镜像加速；默认 **不会** 自动本地编译。只有完整 clone 仓库后才可：
 
 ```bash
-# 需要 Dockerfile + src + web
+# 需要 Dockerfile + src + web（国际源，与 GitHub Actions 一致）
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+### 中国内地源码构建（推荐国内机器）
+
+使用 `Dockerfile.cn`：基础镜像 / Debian apt / PyPI 均走国内源，构建更快、更稳：
+
+```bash
+# 完整 clone 后
+docker compose -f docker-compose.yml -f docker-compose.build.cn.yml up -d --build
+# 镜像标签默认 dicomflow:local-cn
+```
+
+| 用途 | 文件 |
+|------|------|
+| 国内优化 Dockerfile | `Dockerfile.cn` |
+| Compose 构建覆盖 | `docker-compose.build.cn.yml` |
+
+默认源：DaoCloud 代理 Docker Hub 的 `python:3.12-slim-bookworm`、阿里云 Debian、**阿里云 PyPI**（备用腾讯云）。可用环境变量覆盖 `PYTHON_IMAGE`、`PIP_INDEX_URL`、`PIP_TRUSTED_HOST`、`PIP_EXTRA_INDEX_URL`。  
+说明：构建时**不**再执行 `pip install --upgrade pip`（国内镜像对 pip 本体 wheel 常返回 403）。
 
 开发挂载（热更新 `web/`、`./input`）：
 

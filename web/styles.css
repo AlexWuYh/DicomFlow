@@ -924,7 +924,7 @@ body {
 }
 
 .tips-title {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   font-family: var(--font-heading);
   font-size: 1.05rem;
   font-weight: 700;
@@ -934,6 +934,7 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
+  align-items: stretch;
 }
 @media (min-width: 640px) {
   .tips-grid {
@@ -945,15 +946,18 @@ body {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: 12px 12px 14px;
+  min-height: 100%;
+  padding: 14px 14px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 70%, transparent);
+  box-sizing: border-box;
 }
 .tip-num {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   width: 28px;
   height: 28px;
+  margin-top: 1px;
   border-radius: 9px;
   display: inline-flex;
   align-items: center;
@@ -961,22 +965,37 @@ body {
   font-family: var(--font-heading);
   font-size: 0.8rem;
   font-weight: 700;
+  line-height: 1;
   color: var(--primary);
   background: rgba(37, 99, 235, 0.1);
   border: 1px solid rgba(37, 99, 235, 0.16);
 }
-.tip-item strong {
-  display: block;
+.tip-body {
+  flex: 1 1 auto;
+  min-width: 0; /* allow text wrap inside flex without overflow */
+}
+.tip-heading {
+  margin: 0 0 6px;
+  font-family: var(--font-heading);
   font-size: 0.92rem;
   font-weight: 650;
-  margin-bottom: 4px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
-.tip-item p {
+.tip-body p {
   margin: 0;
   font-size: 0.86rem;
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
+}
+.tip-em {
+  font-weight: 650;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .footer {

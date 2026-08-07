@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 from dicomflow.core.models import (
+    ChunkSessionRecord,
     ConvertParams,
     JobError,
     JobPhase,
@@ -48,6 +49,16 @@ class JobStore:
                     path TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS chunk_sessions (
+                    upload_id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    total_chunks INTEGER NOT NULL,
+                    chunk_size_bytes INTEGER NOT NULL,
+                    received_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    completed INTEGER NOT NULL DEFAULT 0
+                );
                 CREATE TABLE IF NOT EXISTS jobs (
                     job_id TEXT PRIMARY KEY,
                     upload_id TEXT,
@@ -63,6 +74,7 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
                 CREATE INDEX IF NOT EXISTS idx_uploads_created ON uploads(created_at);
+                CREATE INDEX IF NOT EXISTS idx_chunk_sessions_created ON chunk_sessions(created_at);
                 """
             )
 
@@ -105,6 +117,69 @@ class JobStore:
         with self._lock:
             cur = self._conn.execute(
                 "DELETE FROM uploads WHERE created_at < ?",
+                (cutoff_iso,),
+            )
+            return cur.rowcount or 0
+
+    # ── Chunk sessions ──────────────────────────────────────
+
+    def save_chunk_session(self, rec: ChunkSessionRecord) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO chunk_sessions
+                (upload_id, filename, size_bytes, total_chunks, chunk_size_bytes,
+                 received_json, created_at, completed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rec.upload_id,
+                    rec.filename,
+                    rec.size_bytes,
+                    rec.total_chunks,
+                    rec.chunk_size_bytes,
+                    json.dumps(sorted(set(rec.received_indexes)), ensure_ascii=False),
+                    to_iso(rec.created_at),
+                    1 if rec.completed else 0,
+                ),
+            )
+
+    def get_chunk_session(self, upload_id: str) -> ChunkSessionRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM chunk_sessions WHERE upload_id = ?",
+                (upload_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            received = json.loads(row["received_json"] or "[]")
+        except json.JSONDecodeError:
+            received = []
+        if not isinstance(received, list):
+            received = []
+        return ChunkSessionRecord(
+            upload_id=row["upload_id"],
+            filename=row["filename"],
+            size_bytes=row["size_bytes"],
+            total_chunks=row["total_chunks"],
+            chunk_size_bytes=row["chunk_size_bytes"],
+            received_indexes=[int(x) for x in received],
+            created_at=from_iso(row["created_at"]),
+            completed=bool(row["completed"]),
+        )
+
+    def delete_chunk_session(self, upload_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM chunk_sessions WHERE upload_id = ?",
+                (upload_id,),
+            )
+
+    def delete_chunk_sessions_before(self, cutoff_iso: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM chunk_sessions WHERE created_at < ?",
                 (cutoff_iso,),
             )
             return cur.rowcount or 0

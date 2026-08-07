@@ -90,6 +90,44 @@ class UploadResponse(BaseModel):
     size_bytes: int
 
 
+class ChunkUploadInitRequest(BaseModel):
+    """Start a multi-part upload session (when chunked_upload_enabled)."""
+
+    filename: str
+    size_bytes: int = Field(ge=1)
+    # Optional Turnstile token (headers also accepted)
+    captcha_token: str | None = None
+    turnstile_token: str | None = None
+
+
+class ChunkUploadInitResponse(BaseModel):
+    upload_id: str
+    chunk_size_bytes: int
+    total_chunks: int
+    size_bytes: int
+    filename: str
+
+
+class ChunkUploadPartResponse(BaseModel):
+    upload_id: str
+    chunk_index: int
+    received_chunks: int
+    total_chunks: int
+
+
+class ChunkSessionRecord(BaseModel):
+    """In-progress multi-part upload (not yet a finalized UploadRecord)."""
+
+    upload_id: str
+    filename: str
+    size_bytes: int
+    total_chunks: int
+    chunk_size_bytes: int
+    received_indexes: list[int] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+    completed: bool = False
+
+
 class JobStartRequest(BaseModel):
     upload_id: str
     format: OutputFormat = OutputFormat.MP4

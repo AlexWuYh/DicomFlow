@@ -25,5 +25,11 @@ class ConvertError(DicomFlowError):
     code = "CONVERT_ERROR"
 
 
+class ChunkUploadError(DicomFlowError):
+    """Chunked upload session invalid or incomplete."""
+
+    code = "CHUNK_UPLOAD_ERROR"
+
+
 class UploadTooLargeError(DicomFlowError):
     code = "UPLOAD_TOO_LARGE"

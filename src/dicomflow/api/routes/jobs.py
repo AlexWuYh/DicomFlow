@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -8,8 +10,11 @@ from dicomflow.api.deps import get_app_settings, get_job_service
 from dicomflow.api.security import client_ip
 from dicomflow.api.upload_validate import validate_upload_filename
 from dicomflow.core.config import Settings
-from dicomflow.core.exceptions import UploadTooLargeError
+from dicomflow.core.exceptions import ChunkUploadError, UploadTooLargeError
 from dicomflow.core.models import (
+    ChunkUploadInitRequest,
+    ChunkUploadInitResponse,
+    ChunkUploadPartResponse,
     ConvertParams,
     JobCreateResponse,
     JobStartRequest,
@@ -33,6 +38,45 @@ def _captcha_http_error(exc: CaptchaError) -> JSONResponse:
     )
 
 
+def _chunk_http_error(exc: ChunkUploadError) -> JSONResponse:
+    status = 403 if "未启用" in (exc.message or "") else 400
+    return JSONResponse(
+        status_code=status,
+        content={
+            "detail": exc.message,
+            "code": getattr(exc, "code", "CHUNK_UPLOAD_ERROR"),
+        },
+    )
+
+
+def _disabled_chunk_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "分片上传未启用", "code": "CHUNK_UPLOAD_DISABLED"},
+    )
+
+
+def _verify_upload_captcha(
+    request: Request, settings: Settings, token: str | None
+) -> JSONResponse | None:
+    tok = (token or "").strip() or None
+    if not tok:
+        tok = request.headers.get("cf-turnstile-response") or request.headers.get(
+            "x-turnstile-token"
+        )
+    try:
+        verify_turnstile(
+            tok,
+            settings=settings,
+            remoteip=client_ip(
+                request, trust_x_forwarded_for=settings.trust_x_forwarded_for
+            ),
+        )
+    except CaptchaError as exc:
+        return _captcha_http_error(exc)
+    return None
+
+
 @router.post("/uploads", response_model=UploadResponse, status_code=201)
 async def create_upload(
     request: Request,
@@ -43,23 +87,12 @@ async def create_upload(
     service: JobService = Depends(get_job_service),
     settings: Settings = Depends(get_app_settings),
 ):
-    """Upload archive only. Conversion starts later via POST /jobs."""
-    token = (cf_turnstile_response or turnstile_token or "").strip() or None
-    # Header fallback (handy for non-form clients / tests)
-    if not token:
-        token = request.headers.get("cf-turnstile-response") or request.headers.get(
-            "x-turnstile-token"
-        )
-    try:
-        verify_turnstile(
-            token,
-            settings=settings,
-            remoteip=client_ip(
-                request, trust_x_forwarded_for=settings.trust_x_forwarded_for
-            ),
-        )
-    except CaptchaError as exc:
-        return _captcha_http_error(exc)
+    """Single-shot upload. Prefer chunked init/parts/complete behind reverse proxies."""
+    captcha_err = _verify_upload_captcha(
+        request, settings, cf_turnstile_response or turnstile_token
+    )
+    if captcha_err is not None:
+        return captcha_err
 
     safe_name = validate_upload_filename(file.filename, settings)
     try:
@@ -73,6 +106,99 @@ async def create_upload(
             status_code=413,
             detail=exc.message,
         ) from None
+    return UploadResponse(
+        upload_id=rec.upload_id,
+        filename=rec.filename,
+        size_bytes=rec.size_bytes,
+    )
+
+
+@router.post(
+    "/uploads/init",
+    response_model=ChunkUploadInitResponse,
+    status_code=201,
+)
+async def init_chunk_upload(
+    request: Request,
+    body: ChunkUploadInitRequest,
+    service: JobService = Depends(get_job_service),
+    settings: Settings = Depends(get_app_settings),
+):
+    """
+    Start a multi-part upload session.
+    Captcha (if enabled) is verified here once; subsequent parts skip captcha.
+    """
+    if not settings.chunked_upload_enabled:
+        return _disabled_chunk_response()
+    captcha_tok = body.captcha_token or body.turnstile_token
+    captcha_err = _verify_upload_captcha(request, settings, captcha_tok)
+    if captcha_err is not None:
+        return captcha_err
+
+    safe_name = validate_upload_filename(body.filename, settings)
+    try:
+        session = service.init_chunk_upload(safe_name, body.size_bytes)
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=exc.message) from None
+    except ChunkUploadError as exc:
+        return _chunk_http_error(exc)
+    return ChunkUploadInitResponse(
+        upload_id=session.upload_id,
+        chunk_size_bytes=session.chunk_size_bytes,
+        total_chunks=session.total_chunks,
+        size_bytes=session.size_bytes,
+        filename=session.filename,
+    )
+
+
+@router.put(
+    "/uploads/{upload_id}/chunks/{chunk_index}",
+    response_model=ChunkUploadPartResponse,
+)
+async def upload_chunk(
+    upload_id: str,
+    chunk_index: int,
+    request: Request,
+    service: JobService = Depends(get_job_service),
+    settings: Settings = Depends(get_app_settings),
+):
+    """Upload one binary part (raw body). No captcha re-check."""
+    if not settings.chunked_upload_enabled:
+        return _disabled_chunk_response()
+    if chunk_index < 0 or chunk_index > 100_000:
+        raise HTTPException(status_code=400, detail="无效的分片序号")
+    body = await request.body()
+    try:
+        session = service.save_chunk(upload_id, chunk_index, BytesIO(body))
+    except ChunkUploadError as exc:
+        return _chunk_http_error(exc)
+    return ChunkUploadPartResponse(
+        upload_id=session.upload_id,
+        chunk_index=chunk_index,
+        received_chunks=len(session.received_indexes),
+        total_chunks=session.total_chunks,
+    )
+
+
+@router.post(
+    "/uploads/{upload_id}/complete",
+    response_model=UploadResponse,
+    status_code=201,
+)
+async def complete_chunk_upload(
+    upload_id: str,
+    service: JobService = Depends(get_job_service),
+    settings: Settings = Depends(get_app_settings),
+):
+    """Assemble parts and register a final UploadRecord (same shape as single-shot)."""
+    if not settings.chunked_upload_enabled:
+        return _disabled_chunk_response()
+    try:
+        rec = service.complete_chunk_upload(upload_id)
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=exc.message) from None
+    except ChunkUploadError as exc:
+        return _chunk_http_error(exc)
     return UploadResponse(
         upload_id=rec.upload_id,
         filename=rec.filename,

@@ -27,6 +27,11 @@ def bootstrap(settings: Settings = Depends(get_app_settings)):
         "captcha_site_key": settings.turnstile_site_key if captcha_on else None,
         "max_upload_bytes": settings.max_upload_bytes,
         "job_ttl_hours": settings.job_ttl_hours,
+        # Chunked upload (for reverse proxies / Cloudflare body limits)
+        "chunked_upload_enabled": bool(settings.chunked_upload_enabled),
+        "chunk_size_mb": int(settings.chunk_size_mb),
+        # Bytes kept for SPA math / progress (derived from chunk_size_mb)
+        "chunk_size_bytes": int(settings.chunk_size_bytes),
     }
 
 

@@ -7,8 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from dicomflow.core.config import Settings, get_settings
-from dicomflow.core.exceptions import DicomFlowError
+from dicomflow.core.exceptions import ChunkUploadError, DicomFlowError, UploadTooLargeError
 from dicomflow.core.models import (
+    ChunkSessionRecord,
     ConvertParams,
     JobError,
     JobPhase,
@@ -86,6 +87,147 @@ class JobService:
     def get_upload(self, upload_id: str) -> UploadRecord | None:
         return self.store.get_upload(upload_id)
 
+    def _chunk_size(self) -> int:
+        """Part size in bytes (configured as DICOMFLOW_CHUNK_SIZE_MB)."""
+        return max(1024 * 1024, int(self.settings.chunk_size_bytes))
+
+    def _max_chunks_allowed(self) -> int:
+        size_bound = max(
+            1,
+            (int(self.settings.max_upload_bytes) + self._chunk_size() - 1)
+            // self._chunk_size(),
+        )
+        return max(1, min(int(self.settings.max_upload_chunks), size_bound))
+
+    def init_chunk_upload(self, filename: str, size_bytes: int) -> ChunkSessionRecord:
+        """Open a multi-part upload session (requires chunked_upload_enabled)."""
+        if not self.settings.chunked_upload_enabled:
+            raise ChunkUploadError("分片上传未启用")
+        if size_bytes < 1:
+            raise ChunkUploadError("文件大小无效")
+        if size_bytes > self.settings.max_upload_bytes:
+            raise UploadTooLargeError(
+                "上传文件超过大小限制",
+                detail=f"max_bytes={self.settings.max_upload_bytes}",
+            )
+        chunk_size = self._chunk_size()
+        total = (size_bytes + chunk_size - 1) // chunk_size
+        if total > self._max_chunks_allowed():
+            raise ChunkUploadError(
+                "分片数量过多，请减小文件或增大分片大小",
+                detail=f"total_chunks={total}",
+            )
+        upload_id = uuid.uuid4().hex
+        self.storage.prepare_chunk_upload(upload_id)
+        rec = ChunkSessionRecord(
+            upload_id=upload_id,
+            filename=filename,
+            size_bytes=size_bytes,
+            total_chunks=total,
+            chunk_size_bytes=chunk_size,
+            received_indexes=[],
+            created_at=utc_now(),
+            completed=False,
+        )
+        self.store.save_chunk_session(rec)
+        return rec
+
+    def get_chunk_session(self, upload_id: str) -> ChunkSessionRecord | None:
+        return self.store.get_chunk_session(upload_id)
+
+    def save_chunk(self, upload_id: str, chunk_index: int, stream) -> ChunkSessionRecord:
+        """Persist one part; idempotent if the same index is re-uploaded."""
+        if not self.settings.chunked_upload_enabled:
+            raise ChunkUploadError("分片上传未启用")
+        if not upload_id or not upload_id.isalnum() or len(upload_id) > 64:
+            raise ChunkUploadError("无效的 upload_id")
+        session = self.store.get_chunk_session(upload_id)
+        if not session or session.completed:
+            raise ChunkUploadError("上传会话不存在或已完成")
+        if chunk_index < 0 or chunk_index >= session.total_chunks:
+            raise ChunkUploadError("分片序号超出范围")
+
+        # Last chunk may be smaller; others should be full size (enforced softly)
+        if chunk_index == session.total_chunks - 1:
+            expected_max = session.size_bytes - chunk_index * session.chunk_size_bytes
+            max_chunk = max(1, expected_max)
+        else:
+            max_chunk = session.chunk_size_bytes
+        # Allow a little slack for clients that pad, but never above configured part size
+        max_chunk = min(max_chunk, session.chunk_size_bytes)
+
+        written = self.storage.write_chunk(
+            upload_id,
+            chunk_index,
+            stream,
+            max_chunk_bytes=max_chunk,
+        )
+        if chunk_index < session.total_chunks - 1:
+            if written != session.chunk_size_bytes:
+                raise ChunkUploadError(
+                    "中间分片大小不正确",
+                    detail=f"expected={session.chunk_size_bytes} actual={written}",
+                )
+        else:
+            expected = session.size_bytes - chunk_index * session.chunk_size_bytes
+            if written != expected:
+                raise ChunkUploadError(
+                    "末片大小不正确",
+                    detail=f"expected={expected} actual={written}",
+                )
+
+        received = set(session.received_indexes)
+        received.add(chunk_index)
+        session.received_indexes = sorted(received)
+        self.store.save_chunk_session(session)
+        return session
+
+    def complete_chunk_upload(self, upload_id: str) -> UploadRecord:
+        """Assemble parts into a finalized upload usable by start_job."""
+        if not self.settings.chunked_upload_enabled:
+            raise ChunkUploadError("分片上传未启用")
+        if not upload_id or not upload_id.isalnum() or len(upload_id) > 64:
+            raise ChunkUploadError("无效的 upload_id")
+        session = self.store.get_chunk_session(upload_id)
+        if not session:
+            raise ChunkUploadError("上传会话不存在或已过期")
+        if session.completed:
+            existing = self.store.get_upload(upload_id)
+            if existing:
+                return existing
+            raise ChunkUploadError("上传会话已完成但文件缺失")
+
+        missing = [
+            i
+            for i in range(session.total_chunks)
+            if i not in set(session.received_indexes)
+        ]
+        if missing:
+            raise ChunkUploadError(
+                f"仍有 {len(missing)} 个分片未上传",
+                detail=f"missing={missing[:20]}",
+            )
+
+        path = self.storage.assemble_chunks(
+            upload_id,
+            session.filename,
+            total_chunks=session.total_chunks,
+            expected_size=session.size_bytes,
+            max_bytes=self.settings.max_upload_bytes,
+        )
+        rec = UploadRecord(
+            upload_id=upload_id,
+            filename=session.filename,
+            size_bytes=path.stat().st_size,
+            path=str(path),
+            created_at=session.created_at,
+        )
+        self.store.save_upload(rec)
+        session.completed = True
+        self.store.save_chunk_session(session)
+        # Session row can stay briefly for idempotent complete; cleanup will purge
+        return rec
+
     def purge_older_than(self, cutoff: datetime) -> tuple[int, int]:
         """
         Drop persisted upload/job records older than cutoff.
@@ -93,6 +235,7 @@ class JobService:
         """
         cutoff_iso = to_iso(as_utc(cutoff))
         uploads_removed = self.store.delete_uploads_before(cutoff_iso)
+        self.store.delete_chunk_sessions_before(cutoff_iso)
         jobs_removed = self.store.delete_jobs_before(cutoff_iso)
         return uploads_removed, jobs_removed
 

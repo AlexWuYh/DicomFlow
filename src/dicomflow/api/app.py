@@ -103,6 +103,16 @@ def create_app() -> FastAPI:
         )
     else:
         logger.info("Turnstile captcha is DISABLED (DICOMFLOW_CAPTCHA_ENABLED=false)")
+    if settings.chunked_upload_enabled:
+        logger.info(
+            "Chunked upload is ENABLED (part size %s MB) — SPA will use multi-part",
+            settings.chunk_size_mb,
+        )
+    else:
+        logger.info(
+            "Chunked upload is DISABLED — enable DICOMFLOW_CHUNKED_UPLOAD_ENABLED=true "
+            "behind Cloudflare Tunnel for large packages"
+        )
     if settings.enable_docs:
         logger.warning("OpenAPI docs are ENABLED at /docs — disable for public deploy")
 

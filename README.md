@@ -41,6 +41,10 @@ If `ghcr.io` is unreachable (timeout), fix network/mirror/proxy first — Compos
 ```bash
 # Full git clone required (Dockerfile + src + web):
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+# Mainland China mirrors (apt / PyPI / base image) — faster on PRC networks:
+docker compose -f docker-compose.yml -f docker-compose.build.cn.yml up -d --build
+# See Dockerfile.cn and docker-compose.build.cn.yml
 ```
 
 Optional dev mounts (hot-reload `web/`, `./input`):

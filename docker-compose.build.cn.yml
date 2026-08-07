@@ -1,0 +1,24 @@
+# 中国内地源码构建覆盖：使用 Dockerfile.cn（国内镜像源）
+# 用法（需完整仓库：Dockerfile.cn + src + web）：
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.cn.yml up -d --build
+#
+# 仅构建镜像：
+#   docker compose -f docker-compose.yml -f docker-compose.build.cn.yml build
+#
+# 自定义基础镜像 / pip 源示例：
+#   PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.12-slim-bookworm \
+#   PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+#   PIP_TRUSTED_HOST=mirrors.aliyun.com \
+#   docker compose -f docker-compose.yml -f docker-compose.build.cn.yml build
+services:
+  dicomflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.cn
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-docker.m.daocloud.io/library/python:3.12-slim-bookworm}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
+    image: ${DICOMFLOW_IMAGE:-dicomflow:local-cn}
+    pull_policy: never
